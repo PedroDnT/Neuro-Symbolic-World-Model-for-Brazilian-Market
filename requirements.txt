@@ -1,0 +1,24 @@
+# Python 3.11 or 3.12.
+# The extra index gives the CPU build of torch on Linux. For CUDA, install torch first
+# from the matching PyTorch index, then install this file.
+# torch-geometric runs without its optional C++ extensions (pyg-lib, torch-scatter,
+# torch-sparse, torch-cluster). Do not install them.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.15.0
+torch-geometric==2.8.1
+pandas==3.1.1
+numpy==2.5.5
+python-bcb==0.4.1
+pydantic==2.14.4
+requests==2.34.2
+pytest==9.2.0
+
+# Full-premise track: Knowledge Graph, extraction, notebook.
+semantica==0.7.0
+langgraph==1.2.24
+anthropic==2.12.0
+pypdf==7.1.1
+nbformat==5.11.1
+nbclient==0.11.0
+nbconvert==7.17.2
+ipykernel==7.4.0
