@@ -165,10 +165,12 @@ class Auditor:
     def render(self, ticker: str) -> str:
         row = self.table.loc[ticker]
         flag = " | FILED EQUITY NOT POSITIVE" if row["equity_not_positive"] else ""
-        header = (
-            f"{ticker} | {row['company']} | {row['sector']}\n"
-            f"hybrid rank {_rank(row['rank'])} of {len(self.table)} | equity change caused by the shock: "
-            f"{row['hybrid_change_pct']:+.2f} % of filed equity{flag}"
-        )
+        if pd.isna(row["rank"]):
+            result = "no hybrid rank: an input of the shock effect is unknown (see the debt exposure line)"
+        else:
+            change = row["hybrid_change_pct"]
+            effect = "not computed" if pd.isna(change) else f"{change:+.2f} % of filed equity"
+            result = f"hybrid rank {int(row['rank'])} of {len(self.table)} | equity change caused by the shock: {effect}"
+        header = f"{ticker} | {row['company']} | {row['sector']}\n{result}{flag}"
         lines = [f"{record['step']:>2}. [{record['basis']:9s}] {record['kind']}: {record['text']}" for record in self.trail(ticker)]
         return header + "\n" + "\n".join(lines)

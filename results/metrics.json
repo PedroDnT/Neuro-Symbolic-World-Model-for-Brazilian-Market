@@ -125,6 +125,7 @@
  "models": {
   "sector": {
    "fingerprint": "3c67c7403ccabb8f",
+   "arch": 3,
    "epochs": 143,
    "seeds": [
     0,
@@ -166,6 +167,7 @@
   },
   "no_edges": {
    "fingerprint": "3c67c7403ccabb8f",
+   "arch": 3,
    "epochs": 143,
    "seeds": [
     0,
@@ -207,6 +209,7 @@
   },
   "typed": {
    "fingerprint": "3c67c7403ccabb8f",
+   "arch": 3,
    "epochs": 143,
    "seeds": [
     0,
