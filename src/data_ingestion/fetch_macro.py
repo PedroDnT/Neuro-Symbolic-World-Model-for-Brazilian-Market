@@ -56,7 +56,12 @@ def fetch_series(name: str, code: int, start: str = START, end: str = END) -> pd
 
 
 def build_quarterly(selic: pd.Series, ipca: pd.Series, ptax: pd.Series) -> pd.DataFrame:
-    months = ipca.resample("QE").count()
+    """Quarterly table. Each series must cover each quarter of the window: a gap raises, it is never filled.
+
+    "Last value of the quarter" already uses the previous valid observation inside a quarter.
+    """
+    quarters = pd.date_range(START, END, freq="QE")
+    months = ipca.resample("QE").count().reindex(quarters, fill_value=0)
     if not (months == 3).all():
         raise ValueError(f"IPCA does not have 3 months in each quarter: {months[months != 3].to_dict()}")
     quarterly = pd.DataFrame(
@@ -65,10 +70,11 @@ def build_quarterly(selic: pd.Series, ipca: pd.Series, ptax: pd.Series) -> pd.Da
             "IPCA": ((1 + ipca / 100).resample("QE").prod() - 1) * 100,
             "PTAX": ptax.resample("QE").last(),
         }
-    ).ffill()
+    ).reindex(quarters)
     quarterly.index.name = "quarter"
     if quarterly.isna().any().any():
-        raise ValueError("macro table has empty values after forward fill")
+        missing = {name: [d.date() for d in quarterly.index[quarterly[name].isna()]] for name in quarterly}
+        raise ValueError(f"macro series do not cover the window {START} to {END}: {missing}")
     return quarterly
 
 

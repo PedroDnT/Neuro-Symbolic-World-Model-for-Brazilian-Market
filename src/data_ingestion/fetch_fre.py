@@ -1,7 +1,14 @@
 """Ownership and related-party links between companies of the universe.
 
-Source: the structured tables of the CVM reference form (FRE) of 2021, the last year of
-the train split. A link is kept only when both ends are companies of the universe.
+Source: the structured tables of the CVM reference form (FRE). A link is kept only when
+both ends are companies of the universe. 2 link sets are built, because the archive of a
+year keeps only the last version of each form:
+
+    data/fre_edges_train.csv  FRE 2020. The versions in the archive were received in 2021,
+                              inside the train split, so the model can use them.
+    data/fre_edges.csv        FRE 2021. The versions were received in 2022, inside the test
+                              split. Only the current knowledge graph and the stress test,
+                              which start after the last filed quarter, use them.
 
     ownership       a shareholder CNPJ, or an investee CNPJ, is a universe company
     related_party   the related party is a universe company, by its CNPJ or by its
@@ -9,7 +16,7 @@ the train split. A link is kept only when both ends are companies of the univers
 
 There is no fuzzy match. A party that does not match is counted and dropped.
 
-Output: data/fre_edges.csv
+Output: data/fre_edges_train.csv, data/fre_edges.csv
 Run:    python -m src.data_ingestion.fetch_fre
 """
 from __future__ import annotations
@@ -23,7 +30,8 @@ from src.data_ingestion.download import CVM_BASE, DATA_DIR, RAW_DIR, download
 from src.data_ingestion.fetch_cvm import normalize_text
 
 MODULE = "src/data_ingestion/fetch_fre.py"
-FRE_YEAR = 2021
+TRAIN_YEAR = 2020
+CURRENT_YEAR = 2021
 
 
 def load_universe() -> pd.DataFrame:
@@ -44,16 +52,21 @@ def _digits(series: pd.Series) -> pd.Series:
     return series.fillna("").str.replace(r"\D", "", regex=True)
 
 
-def _table(archive: zipfile.ZipFile, name: str) -> pd.DataFrame:
+def _table(archive: zipfile.ZipFile, name: str, year: int) -> pd.DataFrame:
     """A FRE table, with the highest version of each company only."""
-    with archive.open(f"fre_cia_aberta_{name}_{FRE_YEAR}.csv") as handle:
-        frame = pd.read_csv(handle, sep=";", encoding="latin1", dtype=str)
+    bad: list[list[str]] = []
+    with archive.open(f"fre_cia_aberta_{name}_{year}.csv") as handle:
+        # Some rows hold an unquoted ";" in a free-text field, so they have too many fields.
+        # They cannot be split safely: they are dropped and counted.
+        frame = pd.read_csv(handle, sep=";", encoding="latin1", dtype=str, engine="python", on_bad_lines=bad.append)
+    if bad:
+        print(f"  FRE {year} {name}: {len(bad)} malformed rows dropped")
     frame["filer"] = _digits(frame["CNPJ_Companhia"])
     frame["versao"] = frame["Versao"].astype(int)
     return frame[frame["versao"] == frame.groupby("filer")["versao"].transform("max")]
 
 
-def build_edges(universe: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+def build_edges(universe: pd.DataFrame, year: int) -> tuple[pd.DataFrame, dict]:
     by_cnpj = dict(zip(universe["cnpj"], universe["cd_cvm"]))
     by_name: dict[str, int] = {}
     for column in ("company", "trade_name"):
@@ -61,23 +74,23 @@ def build_edges(universe: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
             if company_key(name):
                 by_name.setdefault(company_key(name), code)
 
-    archive_name = f"fre_cia_aberta_{FRE_YEAR}.zip"
+    archive_name = f"fre_cia_aberta_{year}.zip"
     path = download(f"{CVM_BASE}/DOC/FRE/DADOS/{archive_name}", RAW_DIR / "cvm" / archive_name, MODULE)
     rows = []
     with zipfile.ZipFile(path) as archive:
-        holders = _table(archive, "posicao_acionaria")
+        holders = _table(archive, "posicao_acionaria", year)
         holders = holders[holders["filer"].isin(by_cnpj)].assign(other=lambda d: _digits(d["CPF_CNPJ_Acionista"]))
         for _, row in holders[holders["other"].isin(by_cnpj)].iterrows():
             share = pd.to_numeric(row["Percentual_Total_Acoes_Circulacao"], errors="coerce")
             rows.append(("ownership", by_cnpj[row["other"]], by_cnpj[row["filer"]], share, "cnpj", "posicao_acionaria"))
 
-        investees = _table(archive, "participacao_sociedade")
+        investees = _table(archive, "participacao_sociedade", year)
         investees = investees[investees["filer"].isin(by_cnpj)].assign(other=lambda d: _digits(d["CNPJ"]).str.zfill(14))
         for _, row in investees[investees["other"].isin(by_cnpj)].iterrows():
             share = pd.to_numeric(row["Participacao_Emissor"], errors="coerce")
             rows.append(("ownership", by_cnpj[row["filer"]], by_cnpj[row["other"]], share, "cnpj", "participacao_sociedade"))
 
-        related = _table(archive, "transacao_parte_relacionada")
+        related = _table(archive, "transacao_parte_relacionada", year)
         related = related[related["filer"].isin(by_cnpj)]
         document = _digits(related["Documento_Parte_Relacionada"])
         name_key = related["Parte_Relacionada"].map(company_key)
@@ -103,20 +116,21 @@ def build_edges(universe: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     )
     is_related = grouped["relation"] == "related_party"
     grouped.loc[is_related, "weight"] = grouped.loc[is_related, "rows"].astype(float)
-    grouped.insert(0, "year", FRE_YEAR)
+    grouped.insert(0, "year", year)
     return grouped, counts
 
 
 def main() -> pd.DataFrame:
     universe = load_universe()
-    edges, counts = build_edges(universe)
-    edges.to_csv(DATA_DIR / "fre_edges.csv", index=False)
     ticker = dict(zip(universe["cd_cvm"], universe["ticker"]))
-    print(f"fre_edges.csv: {len(edges)} links between universe companies: {edges['relation'].value_counts().to_dict()}")
-    print(f"related-party rows of universe companies: {counts}")
-    for relation, part in edges.groupby("relation"):
-        pairs = [f"{ticker[s]}>{ticker[d]}" for s, d in zip(part["src_cd_cvm"], part["dst_cd_cvm"])]
-        print(f"  {relation}: {', '.join(pairs[:40])}")
+    for year, name in ((TRAIN_YEAR, "fre_edges_train.csv"), (CURRENT_YEAR, "fre_edges.csv")):
+        edges, counts = build_edges(universe, year)
+        edges.to_csv(DATA_DIR / name, index=False)
+        print(f"{name} (FRE {year}): {len(edges)} links between universe companies: {edges['relation'].value_counts().to_dict()}")
+        print(f"  related-party rows of universe companies: {counts}")
+        for relation, part in edges.groupby("relation"):
+            pairs = [f"{ticker[s]}>{ticker[d]}" for s, d in zip(part["src_cd_cvm"], part["dst_cd_cvm"])]
+            print(f"  {relation}: {', '.join(pairs[:40])}")
     return edges
 
 

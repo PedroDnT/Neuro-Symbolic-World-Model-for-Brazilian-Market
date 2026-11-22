@@ -9,8 +9,19 @@ Scope: the consolidated statement. A company with no subsidiary files only the i
 statement, so the individual statement is used for a date that has no consolidated one.
 The `scope` column says which one each row holds ("con" or "ind").
 
-A value is never guessed. A row with a label that does not match its account code is
-dropped. A flow with a missing part stays empty.
+A value is never guessed. These source errors are handled:
+- A row with a label that does not match its account code is dropped.
+- A filing declared in units (ESCALA_MOEDA = UNIDADE) whose own comparative column is
+  1/1000 of the value filed for that date is in thousands. Its values are multiplied by
+  1000, only when this proof exists. Each case is printed.
+- When 2 rows of 1 filing give different values for 1 account and period, the value stays empty.
+- A row with zero total assets counts as absent (some companies file an all-zero form).
+- A financial expense (3.06.02) of 0 or above is a placeholder or a swapped line, so it
+  stays empty.
+- A trailing-12-month value stays empty when the comparative year to date of the filing
+  differs from the value first filed for that period (a restatement): the formula would
+  mix 2 bases.
+A flow with a missing part stays empty.
 
 Output: data/cvm_quarterly.csv (values in reais)
 Run:    python -m src.data_ingestion.fetch_cvm
@@ -20,6 +31,7 @@ from __future__ import annotations
 import unicodedata
 import zipfile
 
+import numpy as np
 import pandas as pd
 
 from src.data_ingestion.download import CVM_BASE, DATA_DIR, RAW_DIR, download
@@ -50,6 +62,9 @@ NEEDED = {
     "ORDEM_EXERC", "DT_INI_EXERC", "DT_FIM_EXERC", "CD_CONTA", "DS_CONTA", "VL_CONTA",
 }
 KEY = ["cd_cvm", "quarter"]
+FILING = ["cd_cvm", "quarter", "doc", "versao"]
+UNIT_RATIO = (0.00099, 0.00101)  # comparative / value filed for that date, for a filing in thousands
+RESTATED = 0.01  # relative difference above which a year to date counts as restated
 
 
 def normalize_text(text: str) -> str:
@@ -73,7 +88,7 @@ def _read(doc: str, year: int, statement: str, scope: str, codes: set[str]) -> p
     return frame
 
 
-def _clean(frame: pd.DataFrame, accounts: dict) -> pd.DataFrame:
+def _clean(frame: pd.DataFrame, accounts: dict, unit_fixes: set | None = None) -> pd.DataFrame:
     frame = frame[frame["MOEDA"] == "REAL"].copy()
     frame["cd_cvm"] = frame["CD_CVM"].astype(int)
     frame["quarter"] = pd.to_datetime(frame["DT_REFER"])
@@ -82,12 +97,46 @@ def _clean(frame: pd.DataFrame, accounts: dict) -> pd.DataFrame:
     scale = frame["ESCALA_MOEDA"].map({"MIL": 1000.0, "UNIDADE": 1.0})
     if scale.isna().any():
         raise ValueError(f"unknown ESCALA_MOEDA: {sorted(frame.loc[scale.isna(), 'ESCALA_MOEDA'].unique())}")
+    if unit_fixes:
+        filing = pd.MultiIndex.from_frame(frame[FILING])
+        proven = filing.isin(list(unit_fixes)) & (frame["ESCALA_MOEDA"] == "UNIDADE").to_numpy()
+        scale = scale.where(~proven, 1000.0)
     frame["value"] = pd.to_numeric(frame["VL_CONTA"]) * scale
     frame["column"] = frame["CD_CONTA"].map(lambda code: accounts[code][0])
     expected = frame["CD_CONTA"].map(lambda code: accounts[code][1])
     labels = frame["DS_CONTA"].map(normalize_text)
     matches = [label.startswith(start) for label, start in zip(labels, expected)]
     return frame[matches]
+
+
+def unit_fixes(balance_frames: list[pd.DataFrame]) -> set:
+    """Filings declared in units whose own comparative proves that they are in thousands.
+
+    The comparative column (PENÚLTIMO) of total assets must be 1/1000 of the total assets
+    that the chosen filing of the comparative date reports.
+    """
+    raw = pd.concat(balance_frames, ignore_index=True)
+    assets = _clean(raw[raw["CD_CONTA"] == "1"], BALANCE)
+    chosen = _last_version(assets[assets["ORDEM_EXERC"] == "ÚLTIMO"])
+    stored = chosen.groupby(KEY)["value"].first()
+    comparative = assets[(assets["ORDEM_EXERC"] == "PENÚLTIMO") & (assets["ESCALA_MOEDA"] == "UNIDADE")].copy()
+    comparative["date"] = pd.to_datetime(comparative["DT_FIM_EXERC"])
+    reference = stored.reindex(pd.MultiIndex.from_arrays([comparative["cd_cvm"], comparative["date"]])).to_numpy()
+    ratio = comparative["value"].to_numpy() / reference
+    proven = comparative[(ratio > UNIT_RATIO[0]) & (ratio < UNIT_RATIO[1])]
+    fixes = set(map(tuple, proven[FILING].drop_duplicates().itertuples(index=False)))
+    for cd_cvm, quarter, doc, versao in sorted(fixes):
+        print(f"unit fix: cd_cvm {cd_cvm} {doc} {quarter.date()} version {versao} is in thousands, not units")
+    return fixes
+
+
+def _single(frame: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
+    """1 row for each key. When the rows of a key disagree on the value, the value is empty."""
+    grouped = frame.groupby(keys, as_index=False)
+    first = grouped.first()
+    distinct = grouped["value"].nunique(dropna=False)["value"].to_numpy()
+    first.loc[distinct > 1, "value"] = np.nan
+    return first
 
 
 def _last_version(frame: pd.DataFrame) -> pd.DataFrame:
@@ -98,39 +147,49 @@ def _last_version(frame: pd.DataFrame) -> pd.DataFrame:
     return frame.merge(best[KEY + ["doc", "versao"]], on=KEY + ["doc", "versao"])
 
 
-def build_balance(frames: list[pd.DataFrame]) -> pd.DataFrame:
+def build_balance(frames: list[pd.DataFrame], fixes: set) -> pd.DataFrame:
     raw = pd.concat(frames, ignore_index=True)
     raw = raw[raw["ORDEM_EXERC"] == "ÚLTIMO"]
-    raw = _last_version(_clean(raw, BALANCE))
-    wide = raw.pivot_table(index=KEY, columns="column", values="value", aggfunc="first")
+    raw = _last_version(_clean(raw, BALANCE, fixes))
+    cells = _single(raw, KEY + ["column"])
+    wide = cells.pivot(index=KEY, columns="column", values="value")
     meta = raw.groupby(KEY).agg(
         cnpj=("CNPJ_CIA", "first"), company=("DENOM_CIA", "first"), doc=("doc", "first"), versao=("versao", "first")
     )
     meta["cnpj"] = meta["cnpj"].str.replace(r"\D", "", regex=True)
-    table = meta.join(wide)
-    return table.dropna(subset=MODEL_COLUMNS)
+    table = meta.join(wide).dropna(subset=MODEL_COLUMNS)
+    return table[table["total_assets"] > 0]
 
 
 def _year_to_date(frame: pd.DataFrame) -> pd.DataFrame:
     """For each company, date and account, keep the row with the earliest period start."""
     frame = frame.assign(start=pd.to_datetime(frame["DT_INI_EXERC"]), end=pd.to_datetime(frame["DT_FIM_EXERC"]))
-    return frame.sort_values("start").groupby(KEY + ["column"], as_index=False).first()
+    earliest = frame.groupby(KEY + ["column"])["start"].transform("min")
+    return _single(frame[frame["start"] == earliest], KEY + ["column"])
 
 
-def build_flows(dfp_frames: list[pd.DataFrame], itr_frames: list[pd.DataFrame]) -> pd.DataFrame:
+def _flows(frames: list[pd.DataFrame], fixes: set) -> pd.DataFrame:
+    """Clean flow rows. A financial expense of 0 or above is not an expense, so it is removed."""
+    frame = _clean(pd.concat(frames, ignore_index=True), FLOWS, fixes)
+    placeholder = (frame["column"] == "finexp_ttm") & (frame["value"] >= 0)
+    return frame[~placeholder]
+
+
+def build_flows(dfp_frames: list[pd.DataFrame], itr_frames: list[pd.DataFrame], fixes: set) -> pd.DataFrame:
     """Trailing 12 months for each flow account.
 
     DFP date:  the annual value.
     ITR date:  year to date - year to date of the year before + annual value of the
                fiscal year before. Both year-to-date values come from the same filing.
+               Empty when the year to date of the year before was restated.
     """
-    dfp = _clean(pd.concat(dfp_frames, ignore_index=True), FLOWS)
+    dfp = _flows(dfp_frames, fixes)
     dfp = _last_version(dfp[dfp["ORDEM_EXERC"] == "ÚLTIMO"])
     annual = _year_to_date(dfp)
     annual = annual[(annual["end"] - annual["start"]).dt.days.between(350, 380)]
     annual = annual[KEY + ["column", "value"]].rename(columns={"quarter": "fy_end", "value": "annual"})
 
-    itr = _last_version(_clean(pd.concat(itr_frames, ignore_index=True), FLOWS))
+    itr = _last_version(_flows(itr_frames, fixes))
     current = _year_to_date(itr[itr["ORDEM_EXERC"] == "ÚLTIMO"])[KEY + ["column", "start", "value"]]
     before = _year_to_date(itr[itr["ORDEM_EXERC"] == "PENÚLTIMO"])[KEY + ["column", "value"]]
     merged = current.merge(before, on=KEY + ["column"], suffixes=("", "_before"))
@@ -138,10 +197,23 @@ def build_flows(dfp_frames: list[pd.DataFrame], itr_frames: list[pd.DataFrame]) 
     merged = merged.merge(annual, on=["cd_cvm", "fy_end", "column"])
     merged["ttm"] = merged["value"] - merged["value_before"] + merged["annual"]
 
+    # The year to date first filed 1 year earlier, to detect a restated comparative.
+    first_filed = current[KEY + ["column", "value"]].rename(columns={"quarter": "year_before", "value": "first_filed"})
+    merged["year_before"] = merged["quarter"] - pd.DateOffset(years=1)
+    merged = merged.merge(first_filed, on=["cd_cvm", "year_before", "column"], how="left")
+    gap = (merged["value_before"] - merged["first_filed"]).abs()
+    size = np.maximum(merged["value_before"].abs(), merged["first_filed"].abs())
+    restated = merged["first_filed"].notna() & (gap > np.maximum(RESTATED * size, 1000.0))
+    merged.loc[restated, "ttm"] = np.nan
+
     from_dfp = annual.rename(columns={"fy_end": "quarter", "annual": "ttm"})
     ttm = pd.concat([merged[KEY + ["column", "ttm"]], from_dfp[KEY + ["column", "ttm"]]], ignore_index=True)
     ttm = ttm.drop_duplicates(subset=KEY + ["column"], keep="last")
-    return ttm.pivot(index=KEY, columns="column", values="ttm")
+    print(f"flows: {int(restated.sum())} trailing values left empty after a restatement", flush=True)
+    wide = ttm.pivot(index=KEY, columns="column", values="ttm")
+    # A trailing financial expense of 0 or above is not an expense: the parts do not fit.
+    wide["finexp_ttm"] = wide["finexp_ttm"].where(wide["finexp_ttm"] < 0)
+    return wide
 
 
 def build_scope(scope: str) -> pd.DataFrame:
@@ -155,7 +227,8 @@ def build_scope(scope: str) -> pd.DataFrame:
             balance_frames.append(_read(doc, year, "BPP", scope, liability_codes))
             flows.append(_read(doc, year, "DRE", scope, set(FLOWS)))
             print(f"read {scope} {doc} {year}", flush=True)
-    table = build_balance(balance_frames).join(build_flows(dfp_flows, itr_flows))
+    fixes = unit_fixes(balance_frames)
+    table = build_balance(balance_frames, fixes).join(build_flows(dfp_flows, itr_flows, fixes))
     table.insert(0, "scope", scope)
     return table
 

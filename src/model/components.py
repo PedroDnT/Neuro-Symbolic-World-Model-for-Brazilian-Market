@@ -20,10 +20,11 @@ class AccountingProjectionLayer(nn.Module):
 
     def __init__(self, n_accounts: int = 4):
         super().__init__()
-        constraint = torch.tensor([[1.0] + [-1.0] * (n_accounts - 1)])
-        projection = torch.eye(n_accounts) - torch.linalg.pinv(constraint) @ constraint
-        self.register_buffer("C", constraint)
-        self.register_buffer("P", projection)
+        # Built in float64, then stored in float32: a float32 build leaves 3e-7 in C @ P.
+        constraint = torch.tensor([[1.0] + [-1.0] * (n_accounts - 1)], dtype=torch.float64)
+        projection = torch.eye(n_accounts, dtype=torch.float64) - torch.linalg.pinv(constraint) @ constraint
+        self.register_buffer("C", constraint.float())
+        self.register_buffer("P", projection.float())
 
     def forward(self, raw: torch.Tensor) -> torch.Tensor:
         return raw @ self.P.T

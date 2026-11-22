@@ -35,6 +35,7 @@ TOP_N = 100
 FIRST_QUARTER, LAST_QUARTER = "2010-12-31", "2024-12-31"
 VOLUME_YEAR = 2024
 IDENTITY_TOLERANCE = 1e-6
+MAX_JUMP = 20.0
 
 FINANCIAL_SECTORS = {
     "Bancos",
@@ -102,12 +103,20 @@ def register() -> pd.DataFrame:
 
 
 def ticker_map(companies: pd.DataFrame) -> pd.DataFrame:
-    """Ticker -> company, from the FCA table of traded securities."""
-    name = f"fca_cia_aberta_{VOLUME_YEAR}.zip"
-    path = download(f"{CVM_BASE}/DOC/FCA/DADOS/{name}", RAW_DIR / "cvm" / name, MODULE)
-    with zipfile.ZipFile(path) as archive:
-        with archive.open(f"fca_cia_aberta_valor_mobiliario_{VOLUME_YEAR}.csv") as handle:
-            frame = pd.read_csv(handle, sep=";", encoding="latin1", dtype=str)
+    """Ticker -> company, from the FCA tables of traded securities.
+
+    The FCA file of a year keeps only the last version of each company, so a ticker that
+    changed during the volume year is only in the file of the year before. Both years are
+    read. When a ticker is in both, the newer mapping wins.
+    """
+    tables = []
+    for year in (VOLUME_YEAR - 1, VOLUME_YEAR):
+        name = f"fca_cia_aberta_{year}.zip"
+        path = download(f"{CVM_BASE}/DOC/FCA/DADOS/{name}", RAW_DIR / "cvm" / name, MODULE)
+        with zipfile.ZipFile(path) as archive:
+            with archive.open(f"fca_cia_aberta_valor_mobiliario_{year}.csv") as handle:
+                tables.append(pd.read_csv(handle, sep=";", encoding="latin1", dtype=str).assign(year=year))
+    frame = pd.concat(tables, ignore_index=True)
     frame = frame[frame["Valor_Mobiliario"].isin(SHARE_TYPES) & frame["Codigo_Negociacao"].notna()]
     frame = frame.assign(
         ticker=frame["Codigo_Negociacao"].str.strip().str.upper(),
@@ -117,7 +126,7 @@ def ticker_map(companies: pd.DataFrame) -> pd.DataFrame:
     frame = frame[frame["ticker"].map(lambda code: bool(TICKER_PATTERN.match(code)))]
     active = companies.sort_values("SIT").drop_duplicates("cnpj", keep="first")
     frame = frame.merge(active[["cnpj", "cd_cvm"]], on="cnpj")
-    return frame[["ticker", "cd_cvm"]].drop_duplicates()
+    return frame.sort_values("year")[["ticker", "cd_cvm", "year"]].drop_duplicates("ticker", keep="last")
 
 
 def b3_issuers() -> dict[str, int]:
@@ -160,8 +169,14 @@ def b3_issuers() -> dict[str, int]:
 
 
 def company_volume(volume: pd.Series, tickers: pd.DataFrame, issuers: dict[str, int]) -> pd.DataFrame:
-    """Sum the tickers of each company. Report how each ticker found its company."""
+    """Sum the tickers of each company. Report how each ticker found its company.
+
+    The ticker shown for a company is its most traded current ticker. A ticker that only
+    the FCA table of the year before lists (renamed during the year) adds its volume, but
+    is not shown.
+    """
     exact = dict(zip(tickers["ticker"], tickers["cd_cvm"]))
+    current = set(tickers.loc[tickers["year"] == VOLUME_YEAR, "ticker"])
     stems = tickers.assign(stem=tickers["ticker"].str[:4]).groupby("stem")["cd_cvm"].nunique()
     stem_owner = tickers.assign(stem=tickers["ticker"].str[:4]).drop_duplicates("stem").set_index("stem")["cd_cvm"]
     rows = []
@@ -176,7 +191,8 @@ def company_volume(volume: pd.Series, tickers: pd.DataFrame, issuers: dict[str, 
             rows.append((ticker, None, value, "no_match"))
     frame = pd.DataFrame(rows, columns=["ticker", "cd_cvm", "volume", "basis"])
     matched = frame.dropna(subset=["cd_cvm"]).astype({"cd_cvm": int})
-    main = matched.sort_values("volume", ascending=False).drop_duplicates("cd_cvm")
+    old_only = matched["ticker"].isin(set(exact) - current) & (matched["basis"] == "fca_ticker")
+    main = matched.assign(old_only=old_only).sort_values(["old_only", "volume"], ascending=[True, False]).drop_duplicates("cd_cvm")
     total = matched.groupby("cd_cvm")["volume"].sum().rename("volume_mean_quarter")
     out = main.set_index("cd_cvm")[["ticker", "basis"]].join(total).reset_index()
     out.attrs["no_match"] = frame[frame["basis"] == "no_match"].head(15)
@@ -184,16 +200,24 @@ def company_volume(volume: pd.Series, tickers: pd.DataFrame, issuers: dict[str, 
 
 
 def full_history(statements: pd.DataFrame) -> pd.Series:
-    """True for a company that has all quarters with a balanced sheet and positive assets."""
+    """True for a company that has all quarters with a balanced sheet and positive assets,
+    and no quarter where total assets change by more than MAX_JUMP times.
+
+    A larger jump is a shell company that started to operate inside the window (for
+    example Hidrovias do Brasil: R$ 17 thousand of assets in 2010-Q4), so its quarters are
+    not comparable with the others.
+    """
     quarters = quarter_ends()
     frame = statements[statements["quarter"].isin(quarters)].copy()
     residual = (
         frame["total_assets"] - frame["current_liabilities"] - frame["noncurrent_liabilities"] - frame["equity"]
     ).abs() / frame["total_assets"].abs()
     frame = frame[(residual <= IDENTITY_TOLERANCE) & (frame["total_assets"] > 0)]
-    frame = frame.dropna(subset=MODEL_COLUMNS)
+    frame = frame.dropna(subset=MODEL_COLUMNS).sort_values(["cd_cvm", "quarter"])
     counts = frame.groupby("cd_cvm")["quarter"].nunique()
-    return counts == len(quarters)
+    ratio = frame.groupby("cd_cvm")["total_assets"].transform(lambda assets: assets / assets.shift())
+    jumps = frame.assign(jump=(ratio > MAX_JUMP) | (ratio < 1 / MAX_JUMP)).groupby("cd_cvm")["jump"].any()
+    return (counts == len(quarters)) & ~jumps.reindex(counts.index, fill_value=False)
 
 
 def main() -> pd.DataFrame:

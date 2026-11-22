@@ -71,3 +71,23 @@ def test_negative_debt_amount_is_dropped():
     kept, dropped = validate_debt({"slices": [item]}, SECTIONS)
     assert kept == []
     assert dropped[0]["reason"] == "negative amount"
+
+
+def test_debt_amount_must_be_a_number_of_the_quote():
+    item = {
+        "indexer": "CDI",
+        "amount": 1250.0,
+        "lender": None,
+        "instrument": "debentures",
+        "quote": "Debêntures 5ª emissão CDI + 1,20% a.a. 1.250.000",
+    }
+    kept, dropped = validate_debt({"slices": [item]}, SECTIONS)
+    assert kept == []
+    assert dropped[0]["reason"] == "amount not in quote"
+    kept, _ = validate_debt({"slices": [{**item, "amount": 1250000.0}]}, SECTIONS)
+    assert len(kept) == 1
+
+
+def test_pdf_line_break_hyphen_and_dash_are_ignored():
+    sections = [{"location": "p", "text": "em dólares norte￾americanos – Companhia Siderúrgica Nacional"}]
+    assert find_location("em dólares norte-americanos - Companhia Siderúrgica Nacional", sections) == "p"

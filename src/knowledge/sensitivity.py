@@ -16,16 +16,22 @@ MIN_POINTS = 20
 
 
 def regression_share(history: pd.DataFrame, selic: pd.Series, train_end: str) -> float | None:
-    """Slope of the implied rate (percent per year) on SELIC (percent per year), cut to 0..1."""
+    """Slope of the implied rate (percent per year) on SELIC (percent per year).
+
+    Only quarters with debt and a real expense count, with an implied rate from 0 to 100 %
+    (a tiny debt gives rates of thousands of percent). A slope outside 0..1 is not a share,
+    so the result is None, never a value cut to the bound.
+    """
     frame = history.set_index("quarter").sort_index()
-    gross_debt = (frame["debt_short"] + frame["debt_long"]).rolling(4).mean()
-    implied = frame["finexp_ttm"].abs() / gross_debt * 100
+    gross_debt = (frame["debt_short"] + frame["debt_long"]).where(lambda debt: debt > 0).rolling(4).mean()
+    expense = frame["finexp_ttm"].where(frame["finexp_ttm"] < 0)
+    implied = expense.abs() / gross_debt * 100
     joined = pd.DataFrame({"implied": implied, "selic": selic.rolling(4).mean()}).dropna()
-    joined = joined[(joined.index <= pd.Timestamp(train_end)) & np.isfinite(joined["implied"])]
+    joined = joined[(joined.index <= pd.Timestamp(train_end)) & (joined["implied"] > 0) & (joined["implied"] <= 100)]
     if len(joined) < MIN_POINTS or joined["selic"].var() == 0:
         return None
     slope = joined["implied"].cov(joined["selic"]) / joined["selic"].var()
-    return float(min(1.0, max(0.0, slope)))
+    return float(slope) if 0.0 <= slope <= 1.0 else None
 
 
 def floating_shares(universe: pd.DataFrame, train_end: str) -> pd.DataFrame:

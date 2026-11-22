@@ -65,10 +65,16 @@ def _index(doc: str, year: int) -> pd.DataFrame:
     return frame.assign(cd_cvm=frame["CD_CVM"].astype(int), version=frame["VERSAO"].astype(int))
 
 
-def document_link(doc: str, year: int, cd_cvm: int) -> dict | None:
-    """The last filed version of a document of 1 company. None when the index has none."""
+def document_link(doc: str, year: int, cd_cvm: int, received_by: str | None = None) -> dict | None:
+    """The last filed version of a document of 1 company. None when the index has none.
+
+    `received_by` (a date, YYYY-MM-DD) keeps only the versions that CVM received by that day.
+    """
     rows = _index(doc, year)
-    rows = rows[rows["cd_cvm"] == cd_cvm].sort_values(["DT_REFER", "version"])
+    rows = rows[rows["cd_cvm"] == cd_cvm]
+    if received_by is not None:
+        rows = rows[rows["DT_RECEB"] <= received_by]
+    rows = rows.sort_values(["DT_REFER", "version"])
     if rows.empty:
         return None
     last = rows.iloc[-1]
@@ -79,6 +85,7 @@ def document_link(doc: str, year: int, cd_cvm: int) -> dict | None:
         "id_doc": str(last["ID_DOC"]),
         "version": int(last["version"]),
         "reference_date": str(last["DT_REFER"]),
+        "received": str(last["DT_RECEB"]),
         "link": str(last["LINK_DOC"]),
     }
 

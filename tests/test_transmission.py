@@ -1,0 +1,45 @@
+"""Arithmetic of the accounting transmission, against values computed by hand."""
+import numpy as np
+import pytest
+
+from src.simulator.transmission import TAX, Exposure, cumulative_delta, quarter_effects
+
+EXPOSURE = Exposure(
+    gross_debt=1000.0, short_share=0.25, floating_share=0.5, floating_basis="extracted",
+    ipca_share=0.2, fx_share=0.1, profile_basis="extracted",
+)
+
+
+def residual(delta: np.ndarray) -> float:
+    return float(np.abs(delta[..., 0] - delta[..., 1:].sum(axis=-1)).max())
+
+
+def test_selic_shock_by_hand():
+    # Extra interest each quarter: 1000 * 0.5 * 3 / 100 / 4 = 3.75, paid in cash.
+    effects = quarter_effects(EXPOSURE, 3.0, 0.0, 0.0, horizon=4)
+    assert effects[0].interest == pytest.approx(3.75)
+    assert effects[0].delta == pytest.approx([-3.75, -TAX * 3.75, 0.0, -(1 - TAX) * 3.75])
+    assert cumulative_delta(effects)[-1, 3] == pytest.approx(-(1 - TAX) * 15.0)
+
+
+def test_ptax_shock_hits_quarter_1_only():
+    # Revaluation: 1000 * 0.1 * 15 / 100 = 15, in quarter 1 only.
+    effects = quarter_effects(EXPOSURE, 0.0, 0.0, 15.0, horizon=3)
+    assert [effect.fx_revaluation for effect in effects] == pytest.approx([15.0, 0.0, 0.0])
+    assert effects[0].delta == pytest.approx([TAX * 15.0, 0.25 * 15.0, 0.75 * 15.0, -(1 - TAX) * 15.0])
+
+
+def test_ipca_shock_accrues_each_quarter():
+    # Accrual each quarter: 1000 * 0.2 * 1 / 100 = 2.
+    effects = quarter_effects(EXPOSURE, 0.0, 1.0, 0.0, horizon=2)
+    assert [effect.ipca_accrual for effect in effects] == pytest.approx([2.0, 2.0])
+
+
+def test_each_effect_balances():
+    effects = quarter_effects(EXPOSURE, 3.0, 1.0, 15.0, horizon=4)
+    assert residual(np.stack([effect.delta for effect in effects])) <= 1e-9
+    assert residual(cumulative_delta(effects)) <= 1e-9
+
+
+def test_zero_shock_gives_zero():
+    assert not cumulative_delta(quarter_effects(EXPOSURE, 0.0, 0.0, 0.0, horizon=4)).any()

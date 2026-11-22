@@ -36,7 +36,8 @@ class RuleResult:
 
     def line(self) -> str:
         if self.breach is None:
-            return f"{self.rule}: not computed, an input is missing [{self.basis}]"
+            numbers = ", ".join(f"{name} = {value:,.4g}" for name, value in self.inputs.items() if not _missing(value))
+            return f"{self.rule}: not computed, an input is missing or out of range [{self.basis}; {numbers}]"
         verdict = "BREACH" if self.breach else "ok"
         numbers = ", ".join(f"{name} = {value:,.4g}" for name, value in self.inputs.items())
         return f"{self.rule}: {self.formula} -> {self.value:,.4g} (limit {self.threshold:g}) {verdict} [{self.basis}; {numbers}]"
@@ -61,7 +62,7 @@ def leverage(total_assets: float, current_liabilities: float, noncurrent_liabili
     }
     formula = "(current_liabilities + noncurrent_liabilities) / total_assets"
     limit = THRESHOLDS["leverage"]
-    if _missing(*inputs.values()) or total_assets <= 0:
+    if _missing(*inputs.values()) or total_assets <= 0 or current_liabilities < 0 or noncurrent_liabilities < 0:
         return RuleResult("leverage", formula, None, limit, None, inputs, basis)
     value = (current_liabilities + noncurrent_liabilities) / total_assets
     return RuleResult("leverage", formula, value, limit, value > limit, inputs, basis)
@@ -71,7 +72,8 @@ def interest_coverage(ebit_ttm: float, finexp_ttm: float, basis: str = "filed") 
     inputs = {"ebit_ttm": ebit_ttm, "financial_expense_ttm": finexp_ttm}
     formula = "ebit_ttm / |financial_expense_ttm|"
     limit = THRESHOLDS["interest_coverage"]
-    if _missing(ebit_ttm, finexp_ttm) or finexp_ttm == 0:
+    # A financial expense is filed as a negative number. 0 or above is a placeholder.
+    if _missing(ebit_ttm, finexp_ttm) or finexp_ttm >= 0:
         return RuleResult("interest_coverage", formula, None, limit, None, inputs, basis)
     value = ebit_ttm / abs(finexp_ttm)
     return RuleResult("interest_coverage", formula, value, limit, value < limit, inputs, basis)
@@ -93,7 +95,7 @@ def interest_coverage_under_shock(
     }
     formula = "ebit_ttm / (|financial_expense_ttm| + gross_debt * floating_share * selic_delta_pp / 100)"
     limit = THRESHOLDS["interest_coverage"]
-    if _missing(*inputs.values()):
+    if _missing(*inputs.values()) or finexp_ttm >= 0 or gross_debt < 0:
         return RuleResult("interest_coverage_under_shock", formula, None, limit, None, inputs, basis)
     expense = abs(finexp_ttm) + gross_debt * floating_share * selic_delta_pp / 100
     if expense <= 0:
@@ -102,13 +104,18 @@ def interest_coverage_under_shock(
     return RuleResult("interest_coverage_under_shock", formula, value, limit, value < limit, inputs, basis)
 
 
-def equity_loss(equity_base: float, equity_shock: float, basis: str = "model") -> RuleResult:
-    inputs = {"equity_base": equity_base, "equity_shock": equity_shock}
-    formula = "(equity_shock - equity_base) / |equity_base| * 100"
+def equity_loss(equity_base: float, equity_shock: float, equity_filed: float, basis: str = "model") -> RuleResult:
+    """Equity change caused by the shock, as a percent of the last filed equity.
+
+    The denominator is filed equity, not the forecast: a forecast near zero would make any
+    change look huge. The rule does not run when filed equity is not positive.
+    """
+    inputs = {"equity_base": equity_base, "equity_shock": equity_shock, "equity_filed": equity_filed}
+    formula = "(equity_shock - equity_base) / equity_filed * 100"
     limit = -THRESHOLDS["equity_loss_pct"]
-    if _missing(equity_base, equity_shock) or equity_base == 0:
+    if _missing(equity_base, equity_shock, equity_filed) or equity_filed <= 0:
         return RuleResult("equity_loss_under_shock", formula, None, limit, None, inputs, basis)
-    value = (equity_shock - equity_base) / abs(equity_base) * 100
+    value = (equity_shock - equity_base) / equity_filed * 100
     return RuleResult("equity_loss_under_shock", formula, value, limit, value < limit, inputs, basis)
 
 

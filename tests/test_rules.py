@@ -45,16 +45,29 @@ def test_interest_coverage_under_shock():
     assert rules.interest_coverage_under_shock(160.0, -100.0, 1000.0, 0.5, 3.0, "extracted").breach is True
 
 
-def test_equity_loss_under_shock():
-    loss = rules.equity_loss(100.0, 85.0)
+def test_equity_loss_under_shock_uses_filed_equity():
+    # The shock moves equity from 50 to 35: 15 % of the filed equity of 100, a breach.
+    loss = rules.equity_loss(50.0, 35.0, 100.0)
     assert loss.value == pytest.approx(-15.0)
     assert loss.breach is True
-    assert rules.equity_loss(100.0, 95.0).breach is False
+    assert rules.equity_loss(50.0, 45.0, 100.0).breach is False
 
 
-def test_equity_loss_with_negative_base_uses_the_absolute_value():
-    # Base -100 and shock -120: equity falls by 20 % of its absolute size.
-    assert rules.equity_loss(-100.0, -120.0).value == pytest.approx(-20.0)
+def test_equity_loss_does_not_run_on_non_positive_filed_equity():
+    assert rules.equity_loss(-100.0, -120.0, -50.0).breach is None
+    assert rules.equity_loss(10.0, 5.0, 0.0).breach is None
+
+
+def test_leverage_does_not_pass_negative_liabilities():
+    result = rules.leverage(100.0, -10.0, 50.0, "model")
+    assert result.breach is None
+    assert "out of range" in result.line()
+
+
+def test_coverage_rules_do_not_run_on_a_zero_or_positive_expense():
+    assert rules.interest_coverage(150.0, 0.0).breach is None
+    assert rules.interest_coverage(150.0, 30.0).breach is None
+    assert rules.interest_coverage_under_shock(200.0, 0.0, 1000.0, 0.5, 3.0, "extracted").breach is None
 
 
 def test_rule_line_shows_the_numbers():

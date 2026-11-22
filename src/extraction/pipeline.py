@@ -122,14 +122,9 @@ def extract_node(state: State) -> dict:
 def validate_node(state: State) -> dict:
     task = TASKS[state["task"]]
     kept, dropped = task["check"](state["extraction"], state["sections"])
-
-    def key(fact: dict) -> tuple:
-        return (validate.normalize(fact["quote"]), fact[task["kind"]])
-
-    facts = list(state.get("facts", []))
-    known = {key(fact) for fact in facts}
-    facts += [fact for fact in kept if key(fact) not in known]
-    return {"facts": facts, "dropped": dropped}
+    # Each attempt is a complete answer to the full text, so only the last one counts.
+    # A merge would count a line 2 times when the second answer quotes it in another way.
+    return {"facts": kept, "dropped": dropped}
 
 
 def write_node(state: State) -> dict:
@@ -196,6 +191,17 @@ def build_graph():
     return graph.compile()
 
 
+def remove_runs(pairs: set[tuple[int, str]]) -> None:
+    """Remove the stored facts and run lines of these (cd_cvm, task) pairs."""
+    for path in (FACTS, RUNS):
+        if not path.exists():
+            continue
+        lines = [line for line in path.read_text().splitlines() if line.strip()]
+        kept = [line for line in lines if (json.loads(line)["cd_cvm"], json.loads(line)["task"]) not in pairs]
+        path.write_text("".join(line + "\n" for line in kept))
+        print(f"{path.name}: removed {len(lines) - len(kept)} lines of {len(pairs)} pairs")
+
+
 def finished_runs() -> set[tuple[int, str]]:
     if not RUNS.exists():
         return set()
@@ -210,11 +216,14 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--tasks", nargs="*", default=list(TASKS), choices=list(TASKS))
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--redo", action="store_true", help="remove the stored lines of the selected pairs, then run them again")
     args = parser.parse_args(argv)
 
     universe = load_universe()
     companies = universe if args.all else universe[universe["ticker"].isin(args.tickers)]
     graph = build_graph()
+    if args.redo and not args.dry_run:
+        remove_runs({(int(code), task) for code in companies["cd_cvm"] for task in args.tasks})
     finished = finished_runs()
     for task in args.tasks:  # read each yearly index 1 time, before the threads start
         sources._index(TASKS[task]["doc"], TASKS[task]["year"])
