@@ -51,7 +51,49 @@ The engine has 2 parts that run side by side.
 
 ## Results
 
-The test score is being computed. This section follows in the next commit.
+### Test score
+
+1-step forecast of the balance sheet, 2022-Q1 to 2024-Q4 (12 quarters, 100 companies), never used for fitting or for a choice. Each error is divided by the usual quarterly change of the company and account. Lower is better. Source: `results/metrics.json`.
+
+| Engine | MSE | MAE | Median |
+|---|---|---|---|
+| No change | 7.364 | 1.269 | 0.675 |
+| Mean change (naive) | 7.048 | 1.215 | 0.654 |
+| **Hybrid: seasonal ridge** | **6.961** | **1.201** | **0.635** |
+| Neural: sector edges | 6.976 | 1.208 | 0.648 |
+| Neural: typed edges | 6.973 | 1.213 | 0.649 |
+| Neural: no edges | 7.087 | 1.221 | 0.650 |
+
+- The ridge is 1.2 % better than mean change on MSE (company bootstrap 95 % interval of the gain: +0.04 to +0.13), and better in 10 of 12 quarters.
+- The neural variants with edges are about 1 % better than mean change on MSE; their MAE gain is not significant. The 3 seeds of each variant agree within 0.013.
+- All gains are small. 63 % of the squared error of mean change sits in 1 % of the cells: mergers and accounting events (Azzas, Americanas, Localiza) that no model here predicts.
+- The neural shock response is near zero (0.001 scaled units for a 1-standard-deviation SELIC move). The hybrid engine carries the shock ranking.
+
+### Stress test example
+
+`python -m src.simulator.stress_test --selic 3.0 --ptax-pct 15` writes `results/stress_selic+3_ipca+0_ptax+15.csv`.
+
+- 4 companies have filed equity that is not positive (Braskem, Gol, Oi, Recrusul). They rank first, with a flag.
+- The largest hybrid losses come from foreign-currency debt not swapped to CDI: Klabin -39 % of filed equity (84 % of its debt), Petrobras -8 %. The transmission ignores export revenue in USD, so it overstates the loss of an exporter.
+- 36 companies have interest coverage below 1.5 under the shock. 6 customers get a contagion flag from a supplier with high dependence (for example Ultrapar from Braskem and Petrobras).
+- Rank correlation between the 2 engines: 0.24.
+
+### Rules on known failures
+
+The rules run on the filed history of each company (`python -m src.knowledge.rules --cd-cvm <code>`).
+
+| Company | Event | First signal before the event |
+|---|---|---|
+| Light | judicial recovery, 2023-05 | interest coverage below 1.5 from 2021-Q3 |
+| Oi | judicial recovery, 2016-06 | leverage above 0.80 from 2014-Q4 |
+| Gol | Chapter 11, 2024-01 | negative equity from 2014-Q4 |
+
+### Extraction
+
+- 202 runs (100 companies x 2 tasks, plus 1 company that left the universe): 194 ok, 8 with no matching section. Cost: US$ 20.72 (cap US$ 25).
+- Debt profiles for 72 of 100 companies. The others use a regression estimate (9) or nothing (19), with the label in each output.
+- 39 supplier links between universe companies. Each quote is also in the version of the form received by 2021-12-31, so the typed neural variant may use them.
+- Known error: the model read 1 dependence level wrong (Grendene's quote says it does not depend on Braskem, but the fact says "high").
 
 ## Limits
 
