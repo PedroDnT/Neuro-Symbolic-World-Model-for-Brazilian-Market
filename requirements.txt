@@ -16,8 +16,8 @@ pytest==9.2.0
 # Full-premise track: Knowledge Graph, extraction, notebook.
 semantica==0.7.0
 langgraph==1.2.24
-anthropic==2.12.0
-pypdf==7.1.1
+openai==3.57.0
+pypdfium2==5.15.2
 nbformat==5.11.1
 nbclient==0.11.0
 nbconvert==7.17.2
