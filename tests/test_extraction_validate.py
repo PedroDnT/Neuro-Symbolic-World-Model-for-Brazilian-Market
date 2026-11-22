@@ -124,3 +124,12 @@ def test_a_fixed_rate_dollar_line_counts_as_foreign_currency():
     assert not is_fx({"indexer": "FIXED", "quote": "BNDES BRL Fixo 4.020"})
     assert not is_fx({"indexer": "OTHER", "quote": "Bonds USD Fixo 5,0% 52.396.445", "hedged_to_cdi": True})
     assert not is_fx({"indexer": "CDI", "quote": "NCE BRL CDI swap de USD 103.027"})
+
+
+def test_a_sofr_or_export_advance_line_counts_as_foreign_currency():
+    from src.extraction.aggregate import is_fx
+
+    assert is_fx({"indexer": "OTHER", "quote": "Pré Pgto Exportação SOFR+ 3,23% Jul/25 61.752"})
+    assert is_fx({"indexer": "FIXED", "quote": "ACC FIXO 6,06% Set/29 3.176"})
+    assert not is_fx({"indexer": "FIXED", "quote": "Bonds 2030 9.418"})  # names no currency
+    assert not is_fx({"indexer": "OTHER", "quote": "Debêntures BRL CDI/IPCA 15,4% 9.859.547 accrued"})

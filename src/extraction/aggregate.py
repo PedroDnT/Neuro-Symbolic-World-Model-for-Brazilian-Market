@@ -31,8 +31,12 @@ FLOATING_INDEXERS = {"CDI", "SELIC"}
 FX_INDEXERS = {"USD", "EUR", "OTHER_FX"}
 # The first extraction schema had 1 field for the rate and the currency, so the model often
 # gave "FIXED" or "OTHER" to a fixed-rate or SOFR line in US dollars. Such a line counts as
-# foreign currency when its own quote names a currency code.
-FX_CODE = re.compile(r"(?<![A-Za-z])(USD|EUR|GBP|CAD|AUD|JPY|CHF|CNY)(?![A-Za-z])|US\$")
+# foreign currency when its own quote names a currency code, a foreign reference rate (SOFR,
+# LIBOR), an export advance in foreign currency (ACC) or "moeda estrangeira". The word "bond"
+# alone does not count: it names no currency.
+FX_CODE = re.compile(
+    r"(?<![A-Za-z])(USD|EUR|GBP|CAD|AUD|JPY|CHF|CNY|SOFR|LIBOR|ACC)(?![A-Za-z])|US\$|moeda estrangeira", re.I
+)
 
 
 def is_fx(item: dict) -> bool:

@@ -170,7 +170,8 @@ class Auditor:
         else:
             change = row["hybrid_change_pct"]
             effect = "not computed" if pd.isna(change) else f"{change:+.2f} % of filed equity"
-            result = f"hybrid rank {int(row['rank'])} of {len(self.table)} | equity change caused by the shock: {effect}"
+            ranked = int(self.table["rank"].notna().sum())
+            result = f"hybrid rank {int(row['rank'])} of {ranked} ranked companies | equity change caused by the shock: {effect}"
         header = f"{ticker} | {row['company']} | {row['sector']}\n{result}{flag}"
         lines = [f"{record['step']:>2}. [{record['basis']:9s}] {record['kind']}: {record['text']}" for record in self.trail(ticker)]
         return header + "\n" + "\n".join(lines)

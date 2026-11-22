@@ -42,7 +42,7 @@ The engine has 2 parts that run side by side.
    - IPCA: IPCA-linked debt accrues more.
    - PTAX: foreign-currency debt that is not swapped to CDI is revalued.
    - Each loss is after a 34 % tax rate. Each rule keeps the balance sheet balanced.
-3. The debt shares come from the notes to the 2024 statements, read by an LLM with a verbatim quote for each line (`src/extraction/`). A quote must be in the source text. An amount must be a number of its own quote, or the sum of 2 of them (current plus non-current). A fixed-rate or SOFR line counts as foreign currency when its quote names a currency code (USD, EUR and similar). Without a usable debt profile, the floating share is a regression estimate with the label "estimate", and the IPCA and foreign-currency channels give 0. Without an estimate either, the effect stays empty and the company gets no rank.
+3. The debt shares come from the notes to the 2024 statements, read by an LLM with a verbatim quote for each line (`src/extraction/`). A quote must be in the source text. An amount must be a number of its own quote, or the sum of 2 of them (current plus non-current). A fixed-rate or SOFR line counts as foreign currency when its quote names a currency code (USD, EUR and similar), SOFR, LIBOR, ACC or "moeda estrangeira". Without a usable debt profile, the floating share is a regression estimate with the label "estimate", and the IPCA and foreign-currency channels give 0. Without an estimate either, the SELIC effect stays empty and the company gets no rank. A company whose filed debt accounts are 0 while its notes show debt also gets no rank: its gross debt is unknown.
 4. Contagion flag: a customer whose supplier (high dependence, from the 2021 reference form) breaches interest coverage under the shock.
 
 **Neural engine (comparison).** The graph recurrent model of the original work order (`src/model/`): GATv2 attention over sector edges, a GRU state, a Gaussian latent, and an accounting projection layer. It sees the macro inputs, so the shock moves its forecast.
@@ -60,12 +60,12 @@ The engine has 2 parts that run side by side.
 | No change | 7.364 | 1.269 | 0.675 |
 | Mean change (naive) | 7.048 | 1.215 | 0.654 |
 | **Hybrid: seasonal ridge** | **6.961** | **1.201** | **0.635** |
-| Neural: sector edges | 6.976 | 1.208 | 0.648 |
+| Neural: sector edges | 6.975 | 1.208 | 0.648 |
 | Neural: typed edges | 6.973 | 1.213 | 0.649 |
 | Neural: no edges | 7.087 | 1.221 | 0.650 |
 
 - The ridge is 1.2 % better than mean change on MSE (company bootstrap 95 % interval of the gain: +0.04 to +0.13), and better in 10 of 12 quarters.
-- The neural variants with edges are about 1 % better than mean change on MSE; their MAE gain is not significant. The 3 seeds of each variant agree within 0.013.
+- The neural variants with edges are about 1 % better than mean change on MSE; their MAE gain is not significant. The 3 seeds of each variant differ by at most 0.027.
 - All gains are small. 63 % of the squared error of mean change sits in 1 % of the cells: mergers and accounting events (Azzas, Americanas, Localiza) that no model here predicts.
 - The neural shock response is near zero (0.001 scaled units for a 1-standard-deviation SELIC move). The hybrid engine carries the shock ranking.
 
@@ -75,9 +75,11 @@ The engine has 2 parts that run side by side.
 
 - 4 companies have filed equity that is not positive (Braskem, Gol, Oi, Recrusul). They rank first, with a flag.
 - The largest hybrid losses come from foreign-currency debt not swapped to CDI: Klabin -39 % of filed equity (84 % of its debt), Suzano -25 % (80 %), JBS -21 % (90 %), Petrobras -8 %. The transmission ignores export revenue in USD, so it overstates the loss of an exporter.
-- 17 companies have no hybrid rank: they have debt, but no usable debt profile and no regression estimate (for example Minerva, Magazine Luiza, PRIO). Their effect is unknown, not 0.
+- 17 companies have no hybrid rank, because an input of their shock effect is unknown, not 0:
+  - 16 have debt but no usable debt profile and no regression estimate (for example Minerva, Magazine Luiza, PRIO).
+  - Allos has a debt profile, but files its loans outside accounts 2.01.04 and 2.02.01, so its gross debt is unknown.
 - 36 companies have interest coverage below 1.5 under the shock. 6 customers get a contagion flag from a supplier with high dependence (for example Ultrapar from Braskem and Petrobras).
-- Rank correlation between the 2 engines: 0.45, over the 79 companies with a result in both.
+- Rank correlation between the 2 engines: 0.44, over the 79 companies with a result in both.
 
 ### Rules on known failures
 
@@ -101,6 +103,7 @@ The rules run on the filed history of each company (`python -m src.knowledge.rul
 
 - The hybrid shock effect is an accounting pass-through with stated assumptions: no change in revenue or operating costs, debt held constant, 34 % tax. It is not learned from data.
 - Without a usable debt profile, the IPCA and foreign-currency channels give 0. This understates the loss of a company with foreign-currency debt that the extraction did not read.
+- A debt line counts as foreign currency only when its type or its quote says so. For example, Braskem's bond lines name no currency, so its foreign-currency share (0.30) is too low. Braskem ranks first anyway, because its filed equity is not positive.
 - The neural shock response is an extrapolation from 45 quarters of macro data.
 - The universe holds survivors: companies with all 57 quarters. Statements are the latest filed version, not point-in-time.
 - The sector is the current sector of the CVM register.
