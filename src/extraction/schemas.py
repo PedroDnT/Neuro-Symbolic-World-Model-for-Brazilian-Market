@@ -74,8 +74,9 @@ Rules:
    subtotal line together with its parts. When 2 tables show the same debt, use 1 table.
 3. indexer is the contract indexer: CDI, SELIC, IPCA, TJLP_TLP, USD, EUR, OTHER_FX, FIXED or
    OTHER. hedged_to_cdi is true when the text says that the line is swapped to CDI or DI.
-4. amount is the balance as written, as a plain number in the unit of the table. Use null
-   when the text gives no amount for the item.
+4. amount is the balance as written in the table, in the unit of the table, with no
+   thousands separator: write 1.234.567 as 1234567 and 1.234,5 as 1234.5. Use null when
+   the text gives no amount for the item.
 5. lender is the bank or creditor when the text names it. Use null when it does not.
 6. quote is the table line or sentence copied from the text exactly as written, at most
    300 characters.

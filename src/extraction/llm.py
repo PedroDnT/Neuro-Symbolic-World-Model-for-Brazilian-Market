@@ -11,6 +11,12 @@ Settings (environment variables):
 The cost ledger is data/extraction_cost.json. It adds the token usage of each call. Before
 a call is sent, its worst-case cost is reserved. The call is refused when the money spent
 plus the money reserved can pass the cap, so parallel calls cannot pass it together.
+A call that fails after it was sent (a reply that cannot be parsed, a timeout) is booked
+at its worst-case cost, because the provider can bill it. So the ledger can only overstate.
+The SDK does not retry: 1 reservation covers exactly 1 request.
+
+A reply that the token limit cut (status "incomplete") raises IncompleteReply. It is not a
+refusal: the pipeline reports the pair as failed, and the next run tries it again.
 """
 from __future__ import annotations
 
@@ -42,6 +48,10 @@ class BudgetExceeded(RuntimeError):
     pass
 
 
+class IncompleteReply(RuntimeError):
+    pass
+
+
 def _price(model: str) -> tuple[float, float]:
     if model not in PRICES:
         raise ValueError(f"no price for model {model}: add it to PRICES in src/extraction/llm.py")
@@ -67,25 +77,30 @@ def _reserve(worst: float) -> None:
 
 
 def _settle(worst: float, usage) -> float:
-    """Release the reservation and book the real usage. `usage` is None when the call failed."""
+    """Release the reservation and book the cost. `usage` is None when the call failed:
+    then the worst case is booked, because the provider can bill a failed call."""
     global _reserved
     with _lock:
         _reserved -= worst
-        if usage is None:
-            return 0.0
-        price_in, price_out = _price(MODEL)
-        cost = (usage.input_tokens * price_in + usage.output_tokens * price_out) / 1e6
         ledger = read_ledger()
+        if usage is None:
+            cost = worst
+            ledger["failed_calls"] = ledger.get("failed_calls", 0) + 1
+        else:
+            price_in, price_out = _price(MODEL)
+            cost = (usage.input_tokens * price_in + usage.output_tokens * price_out) / 1e6
+            ledger["input_tokens"] += usage.input_tokens
+            ledger["output_tokens"] += usage.output_tokens
         ledger["spent_usd"] += cost
         ledger["calls"] += 1
-        ledger["input_tokens"] += usage.input_tokens
-        ledger["output_tokens"] += usage.output_tokens
         LEDGER.write_text(json.dumps(ledger, indent=1))
         return cost
 
 
 def extract(schema: type[BaseModel], instructions: str, text: str) -> tuple[BaseModel | None, float]:
-    """Return the parsed result and the cost of the call. The result is None on a refusal."""
+    """Return the parsed result and the cost of the call. The result is None on a refusal.
+
+    Raise IncompleteReply when the token limit cut the reply."""
     import openai
 
     price_in, price_out = _price(MODEL)
@@ -94,7 +109,7 @@ def extract(schema: type[BaseModel], instructions: str, text: str) -> tuple[Base
     _reserve(worst)
     usage = None
     try:
-        client = openai.OpenAI(timeout=TIMEOUT_SECONDS, max_retries=2)
+        client = openai.OpenAI(timeout=TIMEOUT_SECONDS, max_retries=0)
         response = client.responses.parse(
             model=MODEL,
             instructions=instructions,
@@ -107,4 +122,6 @@ def extract(schema: type[BaseModel], instructions: str, text: str) -> tuple[Base
         usage = response.usage
     finally:
         cost = _settle(worst, usage)
+    if response.status == "incomplete":
+        raise IncompleteReply(f"the reply was cut: {response.incomplete_details}")
     return response.output_parsed, cost

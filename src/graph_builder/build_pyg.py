@@ -9,13 +9,20 @@ Target `y`: the 4 balance columns of the next quarter. The last quarter has no t
 
 Edges (`edge_index`): both directions between 2 companies of the same sector, no self-loops.
 Typed edges (`typed_edge_index`, `typed_edge_attr`): sector, ownership, related party and
-supplier links, with the relation as a one-hot vector.
+supplier links, with the relation as a one-hot vector. Only links known by the end of the
+train split enter the model: ownership and related party from FRE 2020
+(data/fre_edges_train.csv), and supplier links whose quote is in the form version received
+by 2021-12-31 (`by_cutoff` in data/extracted_edges.csv).
+
+meta.json holds a fingerprint of the snapshots. Each checkpoint and each metrics entry
+stores it, so a stale checkpoint raises an error when it is loaded.
 
 Output: data/pyg_snapshots.pt (list of Data), data/meta.json
 Run:    python -m src.graph_builder.build_pyg
 """
 from __future__ import annotations
 
+import hashlib
 import json
 
 import numpy as np
@@ -27,13 +34,14 @@ from src.data_ingestion.download import DATA_DIR
 from src.data_ingestion.fetch_cvm import MODEL_COLUMNS
 from src.data_ingestion.fetch_fre import load_universe
 from src.data_ingestion.universe import quarter_ends
-from src.protocol import check_balance, check_shape
+from src.protocol import check_balance, check_shape, status_line
 
 MODULE = "src/graph_builder/build_pyg.py"
 TRAIN_END = "2021-12-31"
 MACRO_COLUMNS = ["SELIC", "IPCA", "PTAX"]
 RELATIONS = ["sector", "ownership", "related_party", "supplier"]
 N_FEATURES = len(MODEL_COLUMNS) + len(MACRO_COLUMNS)
+MAX_JUMP = 20.0
 
 
 def balance_tensor(universe: pd.DataFrame, quarters: pd.DatetimeIndex) -> np.ndarray:
@@ -54,19 +62,41 @@ def sector_edges(sectors: list[str]) -> list[tuple[int, int]]:
 
 
 def link_edges(universe: pd.DataFrame) -> dict[str, list[tuple[int, int]]]:
-    """Ownership, related-party and supplier links as node pairs, in both directions."""
+    """Ownership, related-party and supplier links known by the train end, in both directions."""
     position = {code: index for index, code in enumerate(universe["cd_cvm"])}
     pairs: dict[str, set[tuple[int, int]]] = {relation: set() for relation in RELATIONS[1:]}
-    sources = [DATA_DIR / "fre_edges.csv", DATA_DIR / "extracted_edges.csv"]
-    for path in sources:
+    for name in ("fre_edges_train.csv", "extracted_edges.csv"):
+        path = DATA_DIR / name
         if not path.exists():
+            print(status_line("WARN", "WARN_MISSING_EDGES", MODULE, expected=f"data/{name}", actual="missing",
+                              action="Run the link builder and the extraction aggregate before this script."))
             continue
         frame = pd.read_csv(path)
+        if "by_cutoff" in frame.columns:
+            frame = frame[frame["by_cutoff"].astype(bool)]
         for relation, src, dst in zip(frame["relation"], frame["src_cd_cvm"], frame["dst_cd_cvm"]):
             if relation in pairs and src in position and dst in position and src != dst:
                 pairs[relation].add((position[src], position[dst]))
                 pairs[relation].add((position[dst], position[src]))
     return {relation: sorted(found) for relation, found in pairs.items()}
+
+
+def check_continuity(filed: np.ndarray, tickers: list[str], quarters: pd.DatetimeIndex) -> None:
+    """Raise when total assets of a company change more than MAX_JUMP times between 2 quarters."""
+    ratio = filed[1:, :, 0] / filed[:-1, :, 0]
+    bad = np.argwhere((ratio > MAX_JUMP) | (ratio < 1 / MAX_JUMP))
+    if len(bad):
+        cases = [f"{tickers[n]} {quarters[t + 1].date()} x{ratio[t, n]:.4g}" for t, n in bad[:10]]
+        raise ValueError(status_line("ERROR", "ERR_DATA_CONTINUITY", MODULE, expected=f"asset ratio between 1/{MAX_JUMP:g} and {MAX_JUMP:g}",
+                                     actual="; ".join(cases), action="Inspect these filings in data/cvm_quarterly.csv."))
+
+
+def fingerprint(snapshots: list, tickers: list[str], quarters: list[str]) -> str:
+    digest = hashlib.sha256(json.dumps([tickers, quarters]).encode())
+    for snapshot in snapshots:
+        for tensor in (snapshot.x, snapshot.edge_index, snapshot.typed_edge_index, snapshot.typed_edge_attr):
+            digest.update(tensor.numpy().tobytes())
+    return digest.hexdigest()[:16]
 
 
 def main() -> list[Data]:
@@ -76,6 +106,7 @@ def main() -> list[Data]:
     train = quarters <= pd.Timestamp(TRAIN_END)
 
     filed = balance_tensor(universe, quarters)
+    check_continuity(filed, universe["ticker"].tolist(), quarters)
     scale = filed[train, :, 0].mean(axis=0)
     balance = filed / scale[None, :, None]
 
@@ -124,6 +155,7 @@ def main() -> list[Data]:
         "macro_std": macro_std.tolist(),
         "relations": RELATIONS,
         "directed_edges": {relation: len(pairs) for relation, pairs in by_relation.items()},
+        "fingerprint": fingerprint(snapshots, universe["ticker"].tolist(), [q.strftime("%Y-%m-%d") for q in quarters]),
     }
     (DATA_DIR / "meta.json").write_text(json.dumps(meta, indent=1))
 
@@ -133,7 +165,7 @@ def main() -> list[Data]:
           f"train quarters {int(train.sum())}, test targets {int((~train).sum())}")
     print(f"filed identity residual / assets: max {residual.max():.2e}")
     print(check_balance(snapshots[-1].x[:, : len(MODEL_COLUMNS)]))
-    print(f"directed edges: {meta['directed_edges']} | nodes with no sector peer: {isolated}")
+    print(f"directed edges: {meta['directed_edges']} | nodes with no sector peer: {isolated} | fingerprint {meta['fingerprint']}")
     print(f"scaled balance range: {balance.min():.2f} to {balance.max():.2f} | macro z range: {macro_z.min():.2f} to {macro_z.max():.2f}")
     return snapshots
 
