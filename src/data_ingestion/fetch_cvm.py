@@ -113,18 +113,25 @@ def unit_fixes(balance_frames: list[pd.DataFrame]) -> set:
     """Filings declared in units whose own comparative proves that they are in thousands.
 
     The comparative column (PENÚLTIMO) of total assets must be 1/1000 of the total assets
-    that the chosen filing of the comparative date reports.
+    that the chosen filing of the comparative date reports. A fix can correct the reference
+    of another filing, so the check runs again until no new fix appears.
     """
     raw = pd.concat(balance_frames, ignore_index=True)
-    assets = _clean(raw[raw["CD_CONTA"] == "1"], BALANCE)
-    chosen = _last_version(assets[assets["ORDEM_EXERC"] == "ÚLTIMO"])
-    stored = chosen.groupby(KEY)["value"].first()
+    raw = raw[raw["CD_CONTA"] == "1"]
+    assets = _clean(raw, BALANCE)
     comparative = assets[(assets["ORDEM_EXERC"] == "PENÚLTIMO") & (assets["ESCALA_MOEDA"] == "UNIDADE")].copy()
     comparative["date"] = pd.to_datetime(comparative["DT_FIM_EXERC"])
-    reference = stored.reindex(pd.MultiIndex.from_arrays([comparative["cd_cvm"], comparative["date"]])).to_numpy()
-    ratio = comparative["value"].to_numpy() / reference
-    proven = comparative[(ratio > UNIT_RATIO[0]) & (ratio < UNIT_RATIO[1])]
-    fixes = set(map(tuple, proven[FILING].drop_duplicates().itertuples(index=False)))
+    dates = pd.MultiIndex.from_arrays([comparative["cd_cvm"], comparative["date"]])
+    fixes: set = set()
+    while True:
+        fixed = _clean(raw, BALANCE, fixes)
+        stored = _last_version(fixed[fixed["ORDEM_EXERC"] == "ÚLTIMO"]).groupby(KEY)["value"].first()
+        ratio = comparative["value"].to_numpy() / stored.reindex(dates).to_numpy()
+        proven = comparative[(ratio > UNIT_RATIO[0]) & (ratio < UNIT_RATIO[1])]
+        found = fixes | set(map(tuple, proven[FILING].drop_duplicates().itertuples(index=False)))
+        if found == fixes:
+            break
+        fixes = found
     for cd_cvm, quarter, doc, versao in sorted(fixes):
         print(f"unit fix: cd_cvm {cd_cvm} {doc} {quarter.date()} version {versao} is in thousands, not units")
     return fixes
@@ -169,10 +176,12 @@ def _year_to_date(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def _flows(frames: list[pd.DataFrame], fixes: set) -> pd.DataFrame:
-    """Clean flow rows. A financial expense of 0 or above is not an expense, so it is removed."""
+    """Clean flow rows. A financial expense of 0 or above is not an expense, so its value is
+    empty. The row stays: without it a 3-month row can take the place of the year to date."""
     frame = _clean(pd.concat(frames, ignore_index=True), FLOWS, fixes)
     placeholder = (frame["column"] == "finexp_ttm") & (frame["value"] >= 0)
-    return frame[~placeholder]
+    frame["value"] = frame["value"].where(~placeholder)
+    return frame
 
 
 def build_flows(dfp_frames: list[pd.DataFrame], itr_frames: list[pd.DataFrame], fixes: set) -> pd.DataFrame:

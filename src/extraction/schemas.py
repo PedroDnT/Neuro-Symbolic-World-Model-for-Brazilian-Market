@@ -28,7 +28,10 @@ class CounterpartyExtraction(BaseModel):
 
 
 class DebtSlice(BaseModel):
-    indexer: Literal["CDI", "SELIC", "IPCA", "TJLP_TLP", "USD", "EUR", "OTHER_FX", "FIXED", "OTHER"]
+    indexer: Literal["CDI", "SELIC", "IPCA", "TJLP_TLP", "USD", "EUR", "OTHER_FX", "FIXED", "OTHER"] = Field(
+        description="For debt in a foreign currency use USD, EUR or OTHER_FX, also when its rate is fixed or "
+        "floating (for example SOFR). FIXED and OTHER are for debt in reais only"
+    )
     amount: Optional[float] = Field(
         description="Balance at the most recent date, as a plain number in the unit of the table. Null when not given"
     )

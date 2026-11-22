@@ -135,10 +135,14 @@ class Scenario:
                 "neural_residual": residual(self.neural_shock),
             }
         )
-        frame["neural_rank"] = frame["neural_change_pct"].rank(method="first").astype("Int64")
+        # Companies with filed equity that is not positive take the first ranks in both engines.
+        # A company with no result (an unknown input) gets no rank.
+        first = int((~positive).sum())
+        frame["neural_rank"] = (frame["neural_change_pct"].rank(method="first") + first).astype("Int64")
         frame = frame.sort_values(["equity_not_positive", "hybrid_change_pct"], ascending=[False, True], na_position="last")
         frame = frame.reset_index(drop=True)
-        frame.insert(0, "rank", range(1, len(frame) + 1))
+        ranked = frame["equity_not_positive"] | frame["hybrid_change_pct"].notna()
+        frame.insert(0, "rank", pd.Series(range(1, len(frame) + 1), dtype="Int64").where(ranked))
         return frame
 
     def rank_correlation(self) -> float:
@@ -233,6 +237,8 @@ def main() -> pd.DataFrame:
     table = scenario.table()
     RESULTS_DIR.mkdir(exist_ok=True)
     label = f"selic{args.selic:+g}_ipca{args.ipca:+g}_ptax{args.ptax_pct:+g}"
+    if args.variant != "sector":
+        label += f"_{args.variant}"
     table.to_csv(RESULTS_DIR / f"stress_{label}.csv", index=False)
     shown = ["rank", "ticker", "sector", "equity_filed", "hybrid_change_pct", "neural_change_pct", "neural_rank",
              "floating_share", "floating_basis", "coverage_under_shock", "breaching_suppliers"]

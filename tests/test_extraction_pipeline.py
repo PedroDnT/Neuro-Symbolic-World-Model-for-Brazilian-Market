@@ -51,3 +51,38 @@ def test_an_incomplete_reply_raises_and_is_not_a_refusal(monkeypatch, ledger):
     with pytest.raises(llm.IncompleteReply):
         llm.extract(pipeline.TASKS["debt"]["schema"], "instructions", "text")
     assert llm.read_ledger()["output_tokens"] == 16000
+
+
+def status_error(status: int):
+    import httpx
+    import openai
+
+    response = httpx.Response(status, request=httpx.Request("POST", "https://example.invalid/v1/responses"))
+    return openai.APIStatusError("error", response=response, body=None)
+
+
+def test_a_client_error_costs_nothing_and_is_not_retried(monkeypatch, ledger):
+    error = status_error(401)
+    fake_openai(monkeypatch, FakeResponses(error=error))
+    with pytest.raises(Exception):
+        llm.extract(pipeline.TASKS["debt"]["schema"], "instructions", "text")
+    assert llm.read_ledger()["spent_usd"] == 0
+    assert llm.worth_retry(error) is False
+    assert llm.worth_retry(status_error(500)) is True
+
+
+def test_redo_replaces_the_old_result_only_with_a_final_one(monkeypatch, tmp_path):
+    import json
+
+    monkeypatch.setattr(pipeline, "FACTS", tmp_path / "facts.jsonl")
+    monkeypatch.setattr(pipeline, "RUNS", tmp_path / "runs.jsonl")
+    old = {"cd_cvm": 1, "ticker": "X", "task": "debt", "status": "ok"}
+    pipeline.RUNS.write_text(json.dumps(old) + "\n")
+    pipeline.FACTS.write_text(json.dumps({"cd_cvm": 1, "task": "debt", "quote": "old"}) + "\n")
+    state = {"cd_cvm": 1, "ticker": "X", "task": "debt", "redo": True}
+    pipeline.write_node({**state, "status": "truncated"})
+    assert "old" in pipeline.FACTS.read_text() and len(pipeline.RUNS.read_text().splitlines()) == 1
+    pipeline.write_node({**state, "facts": [{"quote": "new"}]})
+    facts = [json.loads(line)["quote"] for line in pipeline.FACTS.read_text().splitlines()]
+    runs = [json.loads(line)["status"] for line in pipeline.RUNS.read_text().splitlines()]
+    assert facts == ["new"] and runs == ["ok"]

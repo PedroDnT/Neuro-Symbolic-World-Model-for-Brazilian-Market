@@ -11,9 +11,12 @@ Settings (environment variables):
 The cost ledger is data/extraction_cost.json. It adds the token usage of each call. Before
 a call is sent, its worst-case cost is reserved. The call is refused when the money spent
 plus the money reserved can pass the cap, so parallel calls cannot pass it together.
-A call that fails after it was sent (a reply that cannot be parsed, a timeout) is booked
-at its worst-case cost, because the provider can bill it. So the ledger can only overstate.
-The SDK does not retry: 1 reservation covers exactly 1 request.
+A call that fails after it was sent (a reply that cannot be parsed, a timeout, a server
+error) is booked at its worst-case cost, because the provider can bill it. A client error
+(HTTP 4xx: a bad key, a bad request, a rate limit) is not billed, so it is booked at 0.
+The ledger can only overstate. `spent_usd` already holds `estimated_unbooked_usd`: an
+estimate for calls that an earlier version of this code did not book. The SDK does not
+retry: 1 reservation covers exactly 1 request.
 
 A reply that the token limit cut (status "incomplete") raises IncompleteReply. It is not a
 refusal: the pipeline reports the pair as failed, and the next run tries it again.
@@ -23,6 +26,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from types import SimpleNamespace
 
 from pydantic import BaseModel
 
@@ -62,6 +66,16 @@ def read_ledger() -> dict:
     if LEDGER.exists():
         return json.loads(LEDGER.read_text())
     return {"spent_usd": 0.0, "calls": 0, "input_tokens": 0, "output_tokens": 0}
+
+
+def worth_retry(error: Exception) -> bool:
+    """LangGraph retry rule: never retry a client error (HTTP 4xx); else the default rule."""
+    import openai
+    from langgraph.types import default_retry_on
+
+    if isinstance(error, openai.APIStatusError) and error.status_code < 500:
+        return False
+    return default_retry_on(error)
 
 
 def _reserve(worst: float) -> None:
@@ -108,6 +122,7 @@ def extract(schema: type[BaseModel], instructions: str, text: str) -> tuple[Base
     worst = (len(instructions + text) / 2 * price_in + MAX_OUTPUT_TOKENS * price_out) / 1e6
     _reserve(worst)
     usage = None
+    not_billed = SimpleNamespace(input_tokens=0, output_tokens=0)
     try:
         client = openai.OpenAI(timeout=TIMEOUT_SECONDS, max_retries=0)
         response = client.responses.parse(
@@ -120,6 +135,10 @@ def extract(schema: type[BaseModel], instructions: str, text: str) -> tuple[Base
             store=False,
         )
         usage = response.usage
+    except openai.APIStatusError as exc:
+        if exc.status_code < 500:
+            usage = not_billed
+        raise
     finally:
         cost = _settle(worst, usage)
     if response.status == "incomplete":

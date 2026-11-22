@@ -12,7 +12,9 @@ Inputs for each company (at the last filed quarter):
 
 The shares come from the extraction of the debt note (basis "extracted"). A company with
 no usable debt profile gets the regression estimate for floating_share (basis "estimate")
-and no IPCA or foreign-currency share (basis "none"): those channels then give 0.
+and no IPCA or foreign-currency share (basis "none"): those channels then give 0. When no
+estimate exists either, the floating share of a company with debt is unknown (NaN), so
+its SELIC effect stays empty, never 0. A channel with a zero shock gives exactly 0.
 
 Rules for each quarter of the horizon (TAX = 34 %, the statutory rate of income tax plus
 social contribution):
@@ -62,9 +64,9 @@ class QuarterEffect:
 def quarter_effects(exposure: Exposure, selic_pp: float, ipca_pp: float, ptax_pct: float, horizon: int) -> list[QuarterEffect]:
     effects = []
     for quarter in range(1, horizon + 1):
-        interest = exposure.gross_debt * exposure.floating_share * selic_pp / 100 / 4
-        accrual = exposure.gross_debt * exposure.ipca_share * ipca_pp / 100
-        revaluation = exposure.gross_debt * exposure.fx_share * ptax_pct / 100 if quarter == 1 else 0.0
+        interest = exposure.gross_debt * exposure.floating_share * selic_pp / 100 / 4 if selic_pp else 0.0
+        accrual = exposure.gross_debt * exposure.ipca_share * ipca_pp / 100 if ipca_pp else 0.0
+        revaluation = exposure.gross_debt * exposure.fx_share * ptax_pct / 100 if quarter == 1 and ptax_pct else 0.0
         debt_rise = accrual + revaluation
         delta = np.array(
             [
@@ -111,5 +113,6 @@ def exposures(statements_last: pd.DataFrame, profile: pd.DataFrame, floating_est
             floating = estimate.loc[cd_cvm, "floating_share"] if cd_cvm in estimate.index else np.nan
             known = not pd.isna(floating)
             basis = str(estimate.loc[cd_cvm, "basis"]) if known else "none"
-            result[cd_cvm] = Exposure(gross, short_share, float(floating) if known else 0.0, basis, 0.0, 0.0, "none")
+            share = float(floating) if known else (0.0 if gross == 0 else float("nan"))
+            result[cd_cvm] = Exposure(gross, short_share, share, basis, 0.0, 0.0, "none")
     return result

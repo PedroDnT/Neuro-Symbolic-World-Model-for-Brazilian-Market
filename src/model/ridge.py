@@ -29,6 +29,8 @@ FIRST_STEP = 4  # lag4 needs 4 earlier quarters
 FOLD_START = 16
 FOLD_SIZE = 4
 MIN_CHANGE_SCALE = 0.01
+# Raise it when the features or the fit change, so an old ridge.pt is refused.
+VERSION = 1
 
 
 @dataclass
@@ -110,7 +112,10 @@ class SeasonalRidge:
         return torch.stack(path[len(levels):])
 
     def state_dict(self) -> dict:
-        return {"trend": self.trend, "scale": self.scale, "weights": self.weights, "alphas": self.alphas, "cv_ratio": self.cv_ratio}
+        return {
+            "version": VERSION, "trend": self.trend, "scale": self.scale, "weights": self.weights,
+            "alphas": self.alphas, "cv_ratio": self.cv_ratio,
+        }
 
     @classmethod
     def from_state(cls, state: dict) -> "SeasonalRidge":

@@ -80,3 +80,9 @@ def test_breach_is_a_python_bool_for_numpy_inputs():
 
     result = rules.interest_coverage(np.float64(100.0), np.float64(-100.0))
     assert result.breach is True
+
+
+def test_negative_equity_does_not_run_on_a_missing_value():
+    result = rules.negative_equity(float("nan"), "model")
+    assert result.breach is None
+    assert "not computed" in result.line()

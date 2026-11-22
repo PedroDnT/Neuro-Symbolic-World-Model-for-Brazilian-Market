@@ -42,7 +42,7 @@ The engine has 2 parts that run side by side.
    - IPCA: IPCA-linked debt accrues more.
    - PTAX: foreign-currency debt that is not swapped to CDI is revalued.
    - Each loss is after a 34 % tax rate. Each rule keeps the balance sheet balanced.
-3. The debt shares come from the notes to the 2024 statements, read by an LLM with a verbatim quote for each line (`src/extraction/`). A quote must be in the source text, and an amount must be a number of its own quote. Without a usable debt profile, a regression estimate is used, with the label "estimate".
+3. The debt shares come from the notes to the 2024 statements, read by an LLM with a verbatim quote for each line (`src/extraction/`). A quote must be in the source text. An amount must be a number of its own quote, or the sum of 2 of them (current plus non-current). A fixed-rate or SOFR line counts as foreign currency when its quote names a currency code (USD, EUR and similar). Without a usable debt profile, the floating share is a regression estimate with the label "estimate", and the IPCA and foreign-currency channels give 0. Without an estimate either, the effect stays empty and the company gets no rank.
 4. Contagion flag: a customer whose supplier (high dependence, from the 2021 reference form) breaches interest coverage under the shock.
 
 **Neural engine (comparison).** The graph recurrent model of the original work order (`src/model/`): GATv2 attention over sector edges, a GRU state, a Gaussian latent, and an accounting projection layer. It sees the macro inputs, so the shock moves its forecast.

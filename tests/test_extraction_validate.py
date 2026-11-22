@@ -91,3 +91,36 @@ def test_debt_amount_must_be_a_number_of_the_quote():
 def test_pdf_line_break_hyphen_and_dash_are_ignored():
     sections = [{"location": "p", "text": "em dólares norte￾americanos – Companhia Siderúrgica Nacional"}]
     assert find_location("em dólares norte-americanos - Companhia Siderúrgica Nacional", sections) == "p"
+
+
+def debt_item(amount: float, quote: str) -> dict:
+    return {"indexer": "USD", "amount": amount, "lender": None, "instrument": "bonds", "quote": quote}
+
+
+def test_debt_amount_can_be_the_sum_of_current_and_non_current():
+    sections = [{"location": "p", "text": "Bonds em dólares norte-americanos 12.345 67.890"}]
+    kept, _ = validate_debt({"slices": [debt_item(80235.0, "Bonds em dólares norte-americanos 12.345 67.890")]}, sections)
+    assert len(kept) == 1
+
+
+def test_debt_amount_must_match_exactly():
+    sections = [{"location": "p", "text": "Bonds em dólares norte-americanos 12.345 67.890"}]
+    _, dropped = validate_debt({"slices": [debt_item(12345.4, "Bonds em dólares norte-americanos 12.345 67.890")]}, sections)
+    assert dropped[0]["reason"] == "amount not in quote"
+
+
+def test_a_rate_is_not_read_as_an_amount_and_a_final_number_is_read():
+    from src.extraction.validate import quote_numbers
+
+    assert quote_numbers("CDI + 1,20% a.a. saldo de 1.250.000.") == [1250000.0]
+    assert quote_numbers("taxa de 3,5 % e saldo de 300.000, vencimento") == [300000.0]
+
+
+def test_a_fixed_rate_dollar_line_counts_as_foreign_currency():
+    from src.extraction.aggregate import is_fx
+
+    assert is_fx({"indexer": "FIXED", "quote": "Bonds USD Fixo 5,0% 52.396.445"})
+    assert is_fx({"indexer": "OTHER", "quote": "Pré-pagamento USD SOFR 6,3% 776.999"})
+    assert not is_fx({"indexer": "FIXED", "quote": "BNDES BRL Fixo 4.020"})
+    assert not is_fx({"indexer": "OTHER", "quote": "Bonds USD Fixo 5,0% 52.396.445", "hedged_to_cdi": True})
+    assert not is_fx({"indexer": "CDI", "quote": "NCE BRL CDI swap de USD 103.027"})

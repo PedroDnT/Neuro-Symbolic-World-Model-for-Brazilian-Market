@@ -56,6 +56,8 @@ def _missing(*values: object) -> bool:
 
 
 def negative_equity(equity: float, basis: str) -> RuleResult:
+    if _missing(equity):
+        return RuleResult("negative_equity", "equity < 0", None, 0.0, None, {"equity": equity}, basis)
     return RuleResult("negative_equity", "equity < 0", equity, 0.0, equity < 0, {"equity": equity}, basis)
 
 

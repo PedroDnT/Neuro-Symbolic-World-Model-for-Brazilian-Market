@@ -29,6 +29,19 @@ from src.extraction.pipeline import FACTS, RUNS, TASKS
 GENERIC_FIRST_WORDS = {"grupo", "sistema"}
 FLOATING_INDEXERS = {"CDI", "SELIC"}
 FX_INDEXERS = {"USD", "EUR", "OTHER_FX"}
+# The first extraction schema had 1 field for the rate and the currency, so the model often
+# gave "FIXED" or "OTHER" to a fixed-rate or SOFR line in US dollars. Such a line counts as
+# foreign currency when its own quote names a currency code.
+FX_CODE = re.compile(r"(?<![A-Za-z])(USD|EUR|GBP|CAD|AUD|JPY|CHF|CNY)(?![A-Za-z])|US\$")
+
+
+def is_fx(item: dict) -> bool:
+    """A foreign-currency line that is not swapped to CDI."""
+    if item.get("hedged_to_cdi"):
+        return False
+    if item["indexer"] in FX_INDEXERS:
+        return True
+    return item["indexer"] in ("FIXED", "OTHER") and FX_CODE.search(item["quote"]) is not None
 TOTAL_TOLERANCE = (0.8, 1.2)
 SUPPLIER_YEAR = 2021
 TRAIN_END = "2021-12-31"
@@ -122,7 +135,7 @@ def debt_profile(facts: list[dict], runs: list[dict]) -> pd.DataFrame:
     A line counts only when its amount is 1 of the numbers of its quote.
     floating_share  CDI or SELIC indexer, or a line that the text says is swapped to CDI
     ipca_share      IPCA indexer and not swapped to CDI
-    fx_share        a foreign currency and not swapped to CDI
+    fx_share        a foreign currency and not swapped to CDI (see is_fx)
     The shares are given only when the sum of the lines is within 20 % of the total debt
     that the notes state, or when the notes state no total.
     """
@@ -139,7 +152,7 @@ def debt_profile(facts: list[dict], runs: list[dict]) -> pd.DataFrame:
         floating = share_of(lambda i: i["indexer"] in FLOATING_INDEXERS or i.get("hedged_to_cdi"))
         contract = share_of(lambda i: i["indexer"] in FLOATING_INDEXERS)
         ipca = share_of(lambda i: i["indexer"] == "IPCA" and not i.get("hedged_to_cdi"))
-        fx = share_of(lambda i: i["indexer"] in FX_INDEXERS and not i.get("hedged_to_cdi"))
+        fx = share_of(is_fx)
         total = run.get("summary", {}).get("total_debt")
         if run["status"] != "ok" or amount_sum <= 0:
             status = "no_amounts"

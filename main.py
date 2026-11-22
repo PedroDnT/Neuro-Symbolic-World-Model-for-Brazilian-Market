@@ -162,7 +162,10 @@ def errors(prediction: torch.Tensor, target: torch.Tensor, scale: torch.Tensor) 
 
 
 def provenance(meta: dict, args, **extra) -> dict:
-    return {"fingerprint": meta["fingerprint"], "epochs": args.epochs, "seeds": args.seeds, "learning_rate": LEARNING_RATE, **extra}
+    return {
+        "fingerprint": meta["fingerprint"], "arch": ARCH, "epochs": args.epochs, "seeds": args.seeds,
+        "learning_rate": LEARNING_RATE, **extra,
+    }
 
 
 def main() -> dict:
@@ -220,9 +223,13 @@ def main() -> dict:
     metrics_path = RESULTS_DIR / "metrics.json"
     if metrics_path.exists():
         # Keep a variant that this run does not train again only when it was measured on the
-        # same data. Its own epochs, seeds and learning rate are stored in its entry.
+        # same data with the same architecture. Its own epochs, seeds and learning rate are
+        # stored in its entry.
         old = json.loads(metrics_path.read_text()).get("models", {})
-        metrics["models"] = {name: entry for name, entry in old.items() if entry.get("fingerprint") == meta["fingerprint"]}
+        metrics["models"] = {
+            name: entry for name, entry in old.items()
+            if entry.get("fingerprint") == meta["fingerprint"] and entry.get("arch") == ARCH
+        }
     for variant in args.variants:
         runs, responses = [], []
         for seed in args.seeds:
