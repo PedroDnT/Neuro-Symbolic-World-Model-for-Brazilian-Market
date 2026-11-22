@@ -54,6 +54,11 @@ SECTOR_ALIASES = {
     "Sem Setor Principal": "Emp. Adm. Participações",
 }
 SHARE_TYPES = {"Ações Ordinárias", "Ações Preferenciais", "Units"}
+# COTAHIST market codes of a standard lot of shares. 02 is the normal code. A company in
+# distress trades under its own code: 05 sanctioned, 06 concordata, 07 out-of-court
+# recovery, 08 judicial recovery, 09 special temporary administration, 11 intervention.
+# Without these codes the universe loses the companies in judicial recovery.
+SHARE_BDI_CODES = {b"02", b"05", b"06", b"07", b"08", b"09", b"11"}
 
 
 def normalize_sector(raw: str) -> str:
@@ -76,8 +81,8 @@ def ticker_volume() -> pd.Series:
     totals: dict[str, float] = defaultdict(float)
     with zipfile.ZipFile(path) as archive, archive.open(archive.namelist()[0]) as handle:
         for line in handle:
-            # TIPREG 01 = quote, CODBDI 02 = standard lot, TPMERC 010 = cash market
-            if line[0:2] != b"01" or line[10:12] != b"02" or line[24:27] != b"010":
+            # TIPREG 01 = quote, TPMERC 010 = cash market, CODBDI = standard lot of a share.
+            if line[0:2] != b"01" or line[10:12] not in SHARE_BDI_CODES or line[24:27] != b"010":
                 continue
             totals[line[12:24].decode("latin1").strip()] += int(line[170:188]) / 100
     if not totals:
