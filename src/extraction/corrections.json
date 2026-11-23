@@ -107,17 +107,17 @@
     "task": "debt",
     "add": {
       "indexer": "OTHER_FX",
-      "amount": 6685532.0,
+      "amount": 6923764.0,
       "hedged_to_cdi": true,
       "lender": null,
-      "instrument": "Dívida Moeda Estrangeira",
-      "quote": "Dívida Moeda Estrangeira (6.685.532) (5.570.174) (7.209.096) (8.848.017)"
+      "instrument": "Swap cambial, ponta passiva em CDI (dívida em moeda estrangeira)",
+      "quote": "Swap (6.923.764) Alta CDI (1.038.565) (1.298.206) (1.557.848)"
     },
-    "reason": "The extraction read only the rate-sensitivity table, which has no line for the foreign-currency debt. The exchange-rate table gives it, and the note says that all of it is hedged, so the line is added as swapped to CDI.",
+    "reason": "All of Energisa's foreign-currency debt is swapped to CDI (page 192: 100 % hedged). The rate-sensitivity table shows it as the CDI leg of the swaps, on a 'Swap' line that the extraction did not read. With this line the lines sum to the stated total of 35,850,274.",
     "evidence": {
       "doc": "dfp",
       "id_doc": "145509",
-      "quote": "A Companhia e suas controladas possuem proteção contra variação cambial adversa de 100% dos financiamentos atrelados a moedas estrangeiras"
+      "quote": "Swap Cambial Posição Passiva (Instrumento de Hedge) Taxa de Juros CDI (6.923.764) (7.145.706)"
     }
   }
 ]

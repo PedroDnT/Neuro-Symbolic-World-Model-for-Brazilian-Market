@@ -1,5 +1,5 @@
 {
-  "graph_id": "bceae599-feca-4d20-a05d-c3596afa6677",
+  "graph_id": "ee12e788-f967-4405-8515-a02d0e1a5727",
   "nodes": [
     {
       "id": "macro:SELIC",
@@ -28204,12 +28204,12 @@
       }
     },
     {
-      "id": "06cd145b-61de-5a77-866a-4b277bb3554f",
-      "familyId": "06cd145b-61de-5a77-866a-4b277bb3554f",
+      "id": "ffbb97cf-a0ef-5312-8816-83a6479d7efe",
+      "familyId": "ffbb97cf-a0ef-5312-8816-83a6479d7efe",
       "source_id": "company:ENGI11",
       "target_id": "macro:SELIC",
       "type": "EXPOSED_TO",
-      "weight": 0.500822951966641,
+      "weight": 0.5041400799335592,
       "properties": {
         "basis": "extracted"
       }
