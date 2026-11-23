@@ -82,9 +82,11 @@ class Auditor:
         add(
             "debt exposure",
             exposure.profile_basis if exposure.profile_basis != "none" else exposure.floating_basis,
-            f"gross debt {brl(exposure.gross_debt)} (filed accounts 2.01.04 + 2.02.01), "
-            f"floating {share(exposure.floating_share)} [{exposure.floating_basis}], "
-            f"IPCA {share(exposure.ipca_share)}, foreign currency not swapped {share(exposure.fx_share)} [{exposure.profile_basis}]",
+            f"gross debt {brl(exposure.gross_debt)} (filed accounts 2.01.04 + 2.02.01); "
+            f"floating {brl(exposure.floating_debt)} ({share(exposure.floating_share)}) [{exposure.floating_basis}], "
+            f"IPCA {brl(exposure.ipca_debt)} ({share(exposure.ipca_share)}), "
+            f"foreign currency not swapped {brl(exposure.fx_debt)} ({share(exposure.fx_share)}) [{exposure.profile_basis}]; "
+            f"source: {exposure.amount_source}",
         )
         for effect in scenario.effects[code]:
             add(

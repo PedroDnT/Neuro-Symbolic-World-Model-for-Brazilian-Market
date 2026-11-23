@@ -6,23 +6,25 @@ debt of each company, on top of the base path of the seasonal ridge.
 Inputs for each company (at the last filed quarter):
     gross_debt      loans, financing and debentures (accounts 2.01.04 + 2.02.01), in reais
     short_share     share of that debt that is current (2.01.04 / gross debt)
-    floating_share  share at a floating domestic rate (CDI or SELIC, or swapped to CDI)
-    ipca_share      share indexed to IPCA
-    fx_share        share in a foreign currency and not swapped to CDI
+    floating_debt   debt at a floating domestic rate (CDI or SELIC, or swapped to CDI), in reais
+    ipca_debt       debt indexed to IPCA, in reais
+    fx_debt         debt in a foreign currency and not swapped to CDI, in reais
 
-The shares come from the extraction of the debt note (basis "extracted"). A company with
-no usable debt profile gets the regression estimate for floating_share (basis "estimate")
-and no IPCA or foreign-currency share (basis "none"): those channels then give 0. When no
-estimate exists either, the floating share of a company with debt is unknown (NaN), so
-its SELIC effect stays empty, never 0. A channel with a zero shock gives exactly 0.
+The amounts come from the lines of the debt note (basis "extracted"), not from a share of
+gross_debt: the filed accounts can hold leases, and a note can list its lines before swap
+lines. Leases outside the note get no shock. A company with no usable debt profile gets
+gross_debt * the regression estimate of its floating share (basis "estimate") and no IPCA or
+foreign-currency debt (basis "none"): those channels then give 0. When no estimate exists
+either, the floating debt of a company with debt is unknown (NaN), so its SELIC effect stays
+empty, never 0. A channel with a zero shock gives exactly 0.
 
 Rules for each quarter of the horizon (TAX = 34 %, the statutory rate of income tax plus
 social contribution):
-    SELIC  extra interest = gross_debt * floating_share * SELIC_delta / 100 / 4, paid in cash.
+    SELIC  extra interest = floating_debt * SELIC_delta / 100 / 4, paid in cash.
            assets -= interest, current liabilities -= TAX * interest (lower tax payable),
            equity -= (1 - TAX) * interest.
-    IPCA   extra accrual = gross_debt * ipca_share * IPCA_delta / 100, added to the debt.
-    PTAX   revaluation = gross_debt * fx_share * PTAX_delta_pct / 100, 1 time in quarter 1.
+    IPCA   extra accrual = ipca_debt * IPCA_delta / 100, added to the debt.
+    PTAX   revaluation = fx_debt * PTAX_delta_pct / 100, 1 time in quarter 1.
            For IPCA and PTAX: debt rises by the amount (current and non-current by
            short_share), a deferred tax asset of TAX * amount is booked, and
            equity -= (1 - TAX) * amount.
@@ -50,6 +52,10 @@ class Exposure:
     ipca_share: float
     fx_share: float
     profile_basis: str  # "extracted" or "none"
+    floating_debt: float  # in reais, what the SELIC rule uses
+    ipca_debt: float
+    fx_debt: float
+    amount_source: str  # where the amounts come from, for the audit trail
 
 
 @dataclass(frozen=True)
@@ -64,9 +70,9 @@ class QuarterEffect:
 def quarter_effects(exposure: Exposure, selic_pp: float, ipca_pp: float, ptax_pct: float, horizon: int) -> list[QuarterEffect]:
     effects = []
     for quarter in range(1, horizon + 1):
-        interest = exposure.gross_debt * exposure.floating_share * selic_pp / 100 / 4 if selic_pp else 0.0
-        accrual = exposure.gross_debt * exposure.ipca_share * ipca_pp / 100 if ipca_pp else 0.0
-        revaluation = exposure.gross_debt * exposure.fx_share * ptax_pct / 100 if quarter == 1 and ptax_pct else 0.0
+        interest = exposure.floating_debt * selic_pp / 100 / 4 if selic_pp else 0.0
+        accrual = exposure.ipca_debt * ipca_pp / 100 if ipca_pp else 0.0
+        revaluation = exposure.fx_debt * ptax_pct / 100 if quarter == 1 and ptax_pct else 0.0
         debt_rise = accrual + revaluation
         delta = np.array(
             [
@@ -92,7 +98,9 @@ def exposures(statements_last: pd.DataFrame, profile: pd.DataFrame, floating_est
     "Outras Obrigações"), so the filed debt is 0 while the notes show debt. Their gross debt
     is unknown (NaN), and their shock effect stays empty, never 0.
     """
-    usable = profile.dropna(subset=["floating_share"]).set_index("cd_cvm") if len(profile) else pd.DataFrame()
+    if len(profile) and "floating_debt_brl" not in profile:
+        raise ValueError("data/debt_profile.csv is older than the code: run python -m src.extraction.aggregate")
+    usable = profile.dropna(subset=["floating_debt_brl"]).set_index("cd_cvm") if len(profile) else pd.DataFrame()
     found_debt = set(profile.loc[profile.get("amount_sum", pd.Series(dtype=float)).fillna(0) > 0, "cd_cvm"]) if len(profile) else set()
     estimate = floating_estimate.set_index("cd_cvm")
     result = {}
@@ -105,14 +113,20 @@ def exposures(statements_last: pd.DataFrame, profile: pd.DataFrame, floating_est
             gross = float("nan")
         if cd_cvm in usable.index:
             shares = usable.loc[cd_cvm]
+            source = f"debt note, unit x{float(shares['unit_factor']):,.0f} ({shares['unit_basis']})"
             result[cd_cvm] = Exposure(
                 gross, short_share, float(shares["floating_share"]), "extracted",
                 float(np.nan_to_num(shares["ipca_share"])), float(np.nan_to_num(shares["fx_share"])), "extracted",
+                float(shares["floating_debt_brl"]), float(np.nan_to_num(shares["ipca_debt_brl"])),
+                float(np.nan_to_num(shares["fx_debt_brl"])), source,
             )
         else:
             floating = estimate.loc[cd_cvm, "floating_share"] if cd_cvm in estimate.index else np.nan
             known = not pd.isna(floating)
             basis = str(estimate.loc[cd_cvm, "basis"]) if known else "none"
             share = float(floating) if known else (0.0 if gross == 0 else float("nan"))
-            result[cd_cvm] = Exposure(gross, short_share, share, basis, 0.0, 0.0, "none")
+            floating_debt = 0.0 if gross == 0 else gross * share
+            result[cd_cvm] = Exposure(
+                gross, short_share, share, basis, 0.0, 0.0, "none", floating_debt, 0.0, 0.0, "filed debt x floating share",
+            )
     return result

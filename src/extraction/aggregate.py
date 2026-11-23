@@ -17,6 +17,7 @@ Run: python -m src.extraction.aggregate
 from __future__ import annotations
 
 import json
+import math
 import re
 
 import pandas as pd
@@ -47,11 +48,19 @@ def is_fx(item: dict) -> bool:
         return True
     return item["indexer"] in ("FIXED", "OTHER") and FX_CODE.search(item["quote"]) is not None
 TOTAL_TOLERANCE = (0.8, 1.2)
+# The unit label of the model is wrong for some tables ("BRL" for a table in thousands), so
+# only a stated thousand or million counts. Else the unit is the factor that puts the line
+# sum closest to the filed debt, and that factor counts only inside this band.
+STATED_UNITS = {"BRL_thousand": 1e3, "BRL_million": 1e6}
+UNIT_FACTORS = (1.0, 1e3, 1e6)
+INFERRED_UNIT_BAND = (0.5, 2.0)
 SUPPLIER_YEAR = 2021
 TRAIN_END = "2021-12-31"
 PROFILE_COLUMNS = [
     "cd_cvm", "ticker", "floating_share", "contract_cdi_share", "ipca_share", "fx_share",
-    "amount_sum", "total_debt", "unit", "lines", "lines_without_amount_in_quote", "status",
+    "floating_debt_brl", "ipca_debt_brl", "fx_debt_brl", "filed_debt_brl", "sum_over_filed",
+    "amount_sum", "total_debt", "unit", "unit_factor", "unit_basis",
+    "lines", "lines_without_amount_in_quote", "status",
 ]
 
 
@@ -133,15 +142,36 @@ def supplier_edges(facts: list[dict], universe: pd.DataFrame) -> tuple[pd.DataFr
     return edges, counts
 
 
-def debt_profile(facts: list[dict], runs: list[dict]) -> pd.DataFrame:
-    """For each company: the shares of debt by rate, with a consistency status.
+def unit_factor(unit: str | None, amount_sum: float, filed_debt: float) -> tuple[float | None, str]:
+    """The factor from the unit of the debt table to reais, and its basis.
+
+    A stated thousand or million is used as it is. Else the factor of UNIT_FACTORS that puts
+    the line sum closest to the filed debt is used, only when the ratio is inside
+    INFERRED_UNIT_BAND. Without a filed debt, or outside the band, the unit is unclear (None).
+    """
+    if unit in STATED_UNITS:
+        return STATED_UNITS[unit], "stated"
+    if not amount_sum > 0 or not filed_debt > 0:
+        return None, "unclear"
+    factor = min(UNIT_FACTORS, key=lambda f: abs(math.log(amount_sum * f / filed_debt)))
+    ratio = amount_sum * factor / filed_debt
+    if INFERRED_UNIT_BAND[0] <= ratio <= INFERRED_UNIT_BAND[1]:
+        return factor, "inferred"
+    return None, "unclear"
+
+
+def debt_profile(facts: list[dict], runs: list[dict], filed_debt: dict[int, float]) -> pd.DataFrame:
+    """For each company: its debt by rate, as shares and as amounts in reais, with a status.
 
     A line counts only when its amount is 1 of the numbers of its quote.
-    floating_share  CDI or SELIC indexer, or a line that the text says is swapped to CDI
-    ipca_share      IPCA indexer and not swapped to CDI
-    fx_share        a foreign currency and not swapped to CDI (see is_fx)
-    The shares are given only when the sum of the lines is within 20 % of the total debt
-    that the notes state, or when the notes state no total.
+    floating  CDI or SELIC indexer, or a line that the text says is swapped to CDI
+    ipca      IPCA indexer and not swapped to CDI
+    fx        a foreign currency and not swapped to CDI (see is_fx)
+    `filed_debt` is the filed debt in reais (accounts 2.01.04 + 2.02.01) at the date of the
+    note. The profile is usable only when the unit is known (see unit_factor) and the sum of
+    the lines is within 20 % of the total that the note states, or of the filed debt, or
+    when the note states no total. The amounts in reais are what the shock uses: the
+    filed accounts can hold leases, and a note can list its lines before swap lines.
     """
     summary = {run["cd_cvm"]: run for run in runs if run["task"] == "debt"}
     rows = []
@@ -150,34 +180,56 @@ def debt_profile(facts: list[dict], runs: list[dict]) -> pd.DataFrame:
         slices = [line for line in lines if validate.amount_in_quote(line)]
         amount_sum = sum(item["amount"] for item in slices)
 
-        def share_of(test) -> float:
-            return sum(item["amount"] for item in slices if test(item)) / amount_sum if amount_sum > 0 else float("nan")
+        def amount_of(test) -> float:
+            return sum(item["amount"] for item in slices if test(item))
 
-        floating = share_of(lambda i: i["indexer"] in FLOATING_INDEXERS or i.get("hedged_to_cdi"))
-        contract = share_of(lambda i: i["indexer"] in FLOATING_INDEXERS)
-        ipca = share_of(lambda i: i["indexer"] == "IPCA" and not i.get("hedged_to_cdi"))
-        fx = share_of(is_fx)
+        floating = amount_of(lambda i: i["indexer"] in FLOATING_INDEXERS or i.get("hedged_to_cdi"))
+        contract = amount_of(lambda i: i["indexer"] in FLOATING_INDEXERS)
+        ipca = amount_of(lambda i: i["indexer"] == "IPCA" and not i.get("hedged_to_cdi"))
+        fx = amount_of(is_fx)
+        unit = run.get("summary", {}).get("unit")
         total = run.get("summary", {}).get("total_debt")
+        filed = float(filed_debt.get(cd_cvm, float("nan")))
+        factor, unit_basis = unit_factor(unit, amount_sum, filed)
+        sum_over_filed = amount_sum * factor / filed if factor and filed > 0 else float("nan")
         if run["status"] != "ok" or amount_sum <= 0:
             status = "no_amounts"
+        elif factor is None:
+            status = "unit_unclear"
         elif not total:
             status = "ok_no_stated_total"
         elif TOTAL_TOLERANCE[0] <= amount_sum / total <= TOTAL_TOLERANCE[1]:
             status = "ok"
+        elif TOTAL_TOLERANCE[0] <= sum_over_filed <= TOTAL_TOLERANCE[1]:
+            status = "ok_filed_total"
         else:
             status = "sum_differs_from_total"
         usable = status.startswith("ok")
+
+        def share(amount: float):
+            return amount / amount_sum if usable else None
+
+        def brl(amount: float):
+            return amount * factor if usable else None
+
         rows.append(
             {
                 "cd_cvm": cd_cvm,
                 "ticker": run["ticker"],
-                "floating_share": floating if usable else None,
-                "contract_cdi_share": contract if usable else None,
-                "ipca_share": ipca if usable else None,
-                "fx_share": fx if usable else None,
+                "floating_share": share(floating),
+                "contract_cdi_share": share(contract),
+                "ipca_share": share(ipca),
+                "fx_share": share(fx),
+                "floating_debt_brl": brl(floating),
+                "ipca_debt_brl": brl(ipca),
+                "fx_debt_brl": brl(fx),
+                "filed_debt_brl": filed,
+                "sum_over_filed": sum_over_filed,
                 "amount_sum": amount_sum,
                 "total_debt": total,
-                "unit": run.get("summary", {}).get("unit"),
+                "unit": unit,
+                "unit_factor": factor,
+                "unit_basis": unit_basis,
                 "lines": len(slices),
                 "lines_without_amount_in_quote": len(lines) - len(slices),
                 "status": status,
@@ -186,12 +238,20 @@ def debt_profile(facts: list[dict], runs: list[dict]) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=PROFILE_COLUMNS).sort_values("ticker")
 
 
+def filed_debt_at(date: str) -> dict[int, float]:
+    """Filed debt in reais (accounts 2.01.04 + 2.02.01) of each company at a date."""
+    statements = pd.read_csv(DATA_DIR / "cvm_quarterly.csv", parse_dates=["quarter"])
+    last = statements[statements["quarter"] == pd.Timestamp(date)]
+    debt = last["debt_short"].fillna(0) + last["debt_long"].fillna(0)
+    return dict(zip(last["cd_cvm"], debt))
+
+
 def main() -> None:
     facts, runs = _read(FACTS), _read(RUNS)
     universe = load_universe()
     edges, counts = supplier_edges(facts, universe)
     edges.to_csv(DATA_DIR / "extracted_edges.csv", index=False)
-    profile = debt_profile(facts, runs)
+    profile = debt_profile(facts, runs, filed_debt_at(f"{TASKS['debt']['year']}-12-31"))
     profile.to_csv(DATA_DIR / "debt_profile.csv", index=False)
 
     ticker = dict(zip(universe["cd_cvm"], universe["ticker"]))
@@ -206,6 +266,10 @@ def main() -> None:
             f"  floating share for {len(usable)} companies: median {usable['floating_share'].median():.2f}, "
             f"contract CDI share median {usable['contract_cdi_share'].median():.2f}"
         )
+        inferred = profile[profile["unit_basis"] == "inferred"]
+        print("  inferred units: " + ", ".join(
+            f"{row.ticker} x{row.unit_factor:,.0f} (sum / filed debt {row.sum_over_filed:.2f})" for row in inferred.itertuples()
+        ))
 
 
 if __name__ == "__main__":

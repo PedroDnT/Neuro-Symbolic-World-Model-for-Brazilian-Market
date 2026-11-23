@@ -1,0 +1,57 @@
+"""The debt profile: unit of the table, total check and amounts in reais. No model call."""
+import pytest
+
+from src.extraction.aggregate import debt_profile, unit_factor
+
+
+def line(cd_cvm: int, indexer: str, amount: float, text: str, hedged: bool = False) -> dict:
+    return {"task": "debt", "cd_cvm": cd_cvm, "indexer": indexer, "amount": amount, "hedged_to_cdi": hedged, "quote": text}
+
+
+def run(cd_cvm: int, unit: str, total: float | None) -> dict:
+    return {"cd_cvm": cd_cvm, "ticker": f"T{cd_cvm}", "task": "debt", "status": "ok", "summary": {"unit": unit, "total_debt": total}}
+
+
+def test_a_stated_thousand_or_million_is_kept():
+    assert unit_factor("BRL_thousand", 3.0, 1.0) == (1e3, "stated")
+    assert unit_factor("BRL_million", 3.0, 1.0) == (1e6, "stated")
+
+
+def test_a_wrong_brl_label_is_inferred_from_the_filed_debt():
+    # The table is in thousands: 2,725,880 x 1,000 is the filed debt.
+    assert unit_factor("BRL", 2_725_880.0, 2_725_880_000.0) == (1e3, "inferred")
+
+
+def test_an_inferred_unit_outside_the_band_is_unclear():
+    # Gol-like: 211,428 is 9.3 times the filed debt at x1,000,000 and 0.009 times at x1,000.
+    assert unit_factor("BRL", 211_428.0, 22_600_000_000.0) == (None, "unclear")
+    assert unit_factor("not_stated", 100.0, float("nan")) == (None, "unclear")
+
+
+def test_amounts_in_reais_and_shares_by_channel():
+    facts = [
+        line(1, "CDI", 600.0, "Debêntures CDI + 1,2% 600"),
+        line(1, "IPCA", 100.0, "Debêntures IPCA + 5% 100"),
+        line(1, "FIXED", 300.0, "Bonds USD Fixo 5,0% 300"),
+    ]
+    profile = debt_profile(facts, [run(1, "BRL_thousand", 1000.0)], {1: 1_000_000.0}).iloc[0]
+    assert profile["status"] == "ok"
+    assert profile["floating_debt_brl"] == pytest.approx(600_000.0)
+    assert profile["ipca_debt_brl"] == pytest.approx(100_000.0)
+    assert profile["fx_debt_brl"] == pytest.approx(300_000.0)
+    assert profile["fx_share"] == pytest.approx(0.3)
+
+
+def test_a_wrong_stated_total_passes_through_the_filed_debt():
+    # Taurus-like: the model read the total of the year before (528,977); the lines match the filed debt.
+    facts = [line(2, "USD", 747_538.0, "Adiantamentos de câmbio USD 747.538")]
+    profile = debt_profile(facts, [run(2, "not_stated", 528_977.0)], {2: 747_538_000.0}).iloc[0]
+    assert profile["status"] == "ok_filed_total"
+    assert profile["unit_basis"] == "inferred" and profile["unit_factor"] == 1e3
+
+
+def test_lines_that_miss_both_totals_are_not_usable():
+    facts = [line(3, "CDI", 400.0, "NCE CDI 400")]
+    profile = debt_profile(facts, [run(3, "BRL_thousand", 1000.0)], {3: 1_000_000.0}).iloc[0]
+    assert profile["status"] == "sum_differs_from_total"
+    assert profile["floating_debt_brl"] is None or profile["floating_debt_brl"] != profile["floating_debt_brl"]

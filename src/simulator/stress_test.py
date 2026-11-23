@@ -73,8 +73,7 @@ class Scenario:
                 rules.interest_coverage_under_shock(
                     row["ebit_ttm"] if row is not None else np.nan,
                     row["finexp_ttm"] if row is not None else np.nan,
-                    exposure.gross_debt,
-                    exposure.floating_share if exposure.floating_basis != "none" else np.nan,
+                    exposure.floating_debt,
                     self.shock.SELIC_delta,
                     exposure.floating_basis,
                 )
@@ -127,6 +126,9 @@ class Scenario:
                 "floating_basis": [self.exposures[c].floating_basis for c in self.meta["cd_cvm"]],
                 "ipca_share": [self.exposures[c].ipca_share for c in self.meta["cd_cvm"]],
                 "fx_share": [self.exposures[c].fx_share for c in self.meta["cd_cvm"]],
+                "floating_debt": [self.exposures[c].floating_debt for c in self.meta["cd_cvm"]],
+                "ipca_debt": [self.exposures[c].ipca_debt for c in self.meta["cd_cvm"]],
+                "fx_debt": [self.exposures[c].fx_debt for c in self.meta["cd_cvm"]],
                 "profile_basis": [self.exposures[c].profile_basis for c in self.meta["cd_cvm"]],
                 "coverage_under_shock": [result.value for result in coverage],
                 "coverage_breach": [result.breach for result in coverage],

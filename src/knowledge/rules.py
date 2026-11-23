@@ -87,24 +87,23 @@ def interest_coverage(ebit_ttm: float, finexp_ttm: float, basis: str = "filed") 
 
 
 def interest_coverage_under_shock(
-    ebit_ttm: float, finexp_ttm: float, gross_debt: float, floating_share: float, selic_delta_pp: float, basis: str
+    ebit_ttm: float, finexp_ttm: float, floating_debt: float, selic_delta_pp: float, basis: str
 ) -> RuleResult:
-    """Interest Coverage when the floating part of the debt reprices by the SELIC change.
+    """Interest Coverage when the floating debt (in reais) reprices by the SELIC change.
 
     Assumption: the full change passes to the floating debt for 1 year, and EBIT stays.
     """
     inputs = {
         "ebit_ttm": ebit_ttm,
         "financial_expense_ttm": finexp_ttm,
-        "gross_debt": gross_debt,
-        "floating_share": floating_share,
+        "floating_debt": floating_debt,
         "selic_delta_pp": selic_delta_pp,
     }
-    formula = "ebit_ttm / (|financial_expense_ttm| + gross_debt * floating_share * selic_delta_pp / 100)"
+    formula = "ebit_ttm / (|financial_expense_ttm| + floating_debt * selic_delta_pp / 100)"
     limit = THRESHOLDS["interest_coverage"]
-    if _missing(*inputs.values()) or finexp_ttm >= 0 or gross_debt < 0:
+    if _missing(*inputs.values()) or finexp_ttm >= 0 or floating_debt < 0:
         return RuleResult("interest_coverage_under_shock", formula, None, limit, None, inputs, basis)
-    expense = abs(finexp_ttm) + gross_debt * floating_share * selic_delta_pp / 100
+    expense = abs(finexp_ttm) + floating_debt * selic_delta_pp / 100
     if expense <= 0:
         return RuleResult("interest_coverage_under_shock", formula, None, limit, None, inputs, basis)
     value = ebit_ttm / expense
