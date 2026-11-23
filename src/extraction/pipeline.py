@@ -70,6 +70,7 @@ class State(TypedDict, total=False):
     ticker: str
     task: str
     dry_run: bool
+    redo: bool
     document: dict
     sections: list[dict]
     extraction: dict
@@ -105,12 +106,12 @@ def extract_node(state: State) -> dict:
         return {"status": "dry_run"}
     task = TASKS[state["task"]]
     text = "\n\n".join(f"[{section['location']}]\n{section['text']}" for section in state["sections"])
-    rejected = [item["quote"] for item in state.get("dropped", [])]
+    rejected = state.get("dropped", [])
     if rejected:
         text += (
-            "\n\nThese quotes from your last answer are not in the text. "
-            "Copy each quote exactly from the text, or remove the item:\n"
-            + "\n".join(f"- {quote}" for quote in rejected)
+            "\n\nThese items of your last answer failed a check (the reason is in brackets). "
+            "Correct each one from the text, or remove it:\n"
+            + "\n".join(f"- {item['quote']} [{item['reason']}]" for item in rejected)
         )
     parsed, cost = llm.extract(task["schema"], task["instructions"], text)
     update = {"attempts": state.get("attempts", 0) + 1, "cost_usd": state.get("cost_usd", 0.0) + cost}
@@ -149,7 +150,14 @@ def write_node(state: State) -> dict:
         "summary": {name: value for name, value in extraction.items() if name != task["items"]},
         "document": document,
     }
+    if state.get("redo") and status not in FINAL_STATUS:
+        # A rerun that does not end in a final status keeps the old (paid) result.
+        print(f"{state['ticker']} {state['task']}: the rerun ended as {status}, the old result stays", flush=True)
+        return {"status": status}
     with WRITE_LOCK:  # the facts of a run and its log line are written together
+        if state.get("redo"):
+            # The old lines of this pair go only now, when the new result exists.
+            remove_runs({(state["cd_cvm"], state["task"])})
         with open(FACTS, "a") as handle:
             for fact in facts:
                 record = {**identity, **fact, "document": document, "model": llm.MODEL}
@@ -179,7 +187,7 @@ def build_graph():
     graph = StateGraph(State)
     graph.add_node("fetch", fetch_node)
     graph.add_node("locate", locate_node)
-    graph.add_node("extract", extract_node, retry_policy=RetryPolicy(max_attempts=2))
+    graph.add_node("extract", extract_node, retry_policy=RetryPolicy(max_attempts=2, retry_on=llm.worth_retry))
     graph.add_node("validate", validate_node)
     graph.add_node("write", write_node)
     graph.add_edge(START, "fetch")
@@ -216,14 +224,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--tasks", nargs="*", default=list(TASKS), choices=list(TASKS))
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--workers", type=int, default=8)
-    parser.add_argument("--redo", action="store_true", help="remove the stored lines of the selected pairs, then run them again")
+    parser.add_argument("--redo", action="store_true", help="run the selected pairs again; a new result replaces the old one")
     args = parser.parse_args(argv)
 
     universe = load_universe()
     companies = universe if args.all else universe[universe["ticker"].isin(args.tickers)]
     graph = build_graph()
-    if args.redo and not args.dry_run:
-        remove_runs({(int(code), task) for code in companies["cd_cvm"] for task in args.tasks})
     finished = finished_runs()
     for task in args.tasks:  # read each yearly index 1 time, before the threads start
         sources._index(TASKS[task]["doc"], TASKS[task]["year"])
@@ -232,7 +238,10 @@ def main(argv: list[str] | None = None) -> None:
     def run(company, task: str) -> str:
         if over_budget.is_set():
             return f"{company.ticker} {task}: skipped, the spending cap is reached"
-        start = {"cd_cvm": int(company.cd_cvm), "ticker": company.ticker, "task": task, "dry_run": args.dry_run}
+        start = {
+            "cd_cvm": int(company.cd_cvm), "ticker": company.ticker, "task": task,
+            "dry_run": args.dry_run, "redo": args.redo,
+        }
         try:
             final = graph.invoke(start)
         except llm.BudgetExceeded as exc:
@@ -254,7 +263,7 @@ def main(argv: list[str] | None = None) -> None:
         (company, task)
         for company in companies.itertuples()
         for task in args.tasks
-        if args.dry_run or (company.cd_cvm, task) not in finished
+        if args.dry_run or args.redo or (company.cd_cvm, task) not in finished
     ]
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         for line in pool.map(lambda job: run(*job), jobs):

@@ -34,6 +34,11 @@ class RuleResult:
     inputs: dict
     basis: str
 
+    def __post_init__(self):
+        # A comparison of numpy numbers gives numpy.bool_, and `numpy.True_ is True` is False.
+        if self.breach is not None:
+            object.__setattr__(self, "breach", bool(self.breach))
+
     def line(self) -> str:
         if self.breach is None:
             numbers = ", ".join(f"{name} = {value:,.4g}" for name, value in self.inputs.items() if not _missing(value))
@@ -51,6 +56,8 @@ def _missing(*values: object) -> bool:
 
 
 def negative_equity(equity: float, basis: str) -> RuleResult:
+    if _missing(equity):
+        return RuleResult("negative_equity", "equity < 0", None, 0.0, None, {"equity": equity}, basis)
     return RuleResult("negative_equity", "equity < 0", equity, 0.0, equity < 0, {"equity": equity}, basis)
 
 

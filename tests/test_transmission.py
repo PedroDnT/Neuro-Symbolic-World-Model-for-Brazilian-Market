@@ -43,3 +43,24 @@ def test_each_effect_balances():
 
 def test_zero_shock_gives_zero():
     assert not cumulative_delta(quarter_effects(EXPOSURE, 0.0, 0.0, 0.0, horizon=4)).any()
+
+
+def test_unknown_floating_share_gives_an_empty_effect_not_zero():
+    unknown = Exposure(1000.0, 0.25, float("nan"), "none", 0.0, 0.0, "none")
+    delta = cumulative_delta(quarter_effects(unknown, 3.0, 0.0, 0.0, horizon=4))
+    assert np.isnan(delta[:, 3]).all()  # equity
+    assert np.isnan(delta[:, 0]).all()  # assets: the interest is paid in cash
+    # A zero shock gives 0, also with an unknown share.
+    assert not cumulative_delta(quarter_effects(unknown, 0.0, 0.0, 0.0, horizon=4)).any()
+
+
+def test_exposure_without_profile_or_estimate():
+    import pandas as pd
+
+    from src.simulator.transmission import exposures
+
+    statements = pd.DataFrame({"debt_short": [100.0, 0.0], "debt_long": [300.0, 0.0]}, index=pd.Index([1, 2], name="cd_cvm"))
+    estimate = pd.DataFrame({"cd_cvm": [], "floating_share": [], "basis": []})
+    result = exposures(statements, pd.DataFrame(columns=["cd_cvm", "floating_share"]), estimate)
+    assert np.isnan(result[1].floating_share)  # debt, share unknown
+    assert result[2].floating_share == 0.0  # no debt: the share does not matter

@@ -53,9 +53,11 @@ def balance_levels(snapshots: list) -> torch.Tensor:
     return torch.stack([snapshot.x[:, :N_BALANCE] for snapshot in snapshots])
 
 
-def check_provenance(checkpoint: dict, meta: dict, name: str) -> None:
+def check_provenance(checkpoint: dict, meta: dict, name: str, version: int | None = None) -> None:
     """Raise when a checkpoint was not trained on the current data and code."""
     problems = []
+    if version is not None and checkpoint.get("version") != version:
+        problems.append(f"code version {checkpoint.get('version')} is not {version}")
     if checkpoint.get("fingerprint") != meta["fingerprint"]:
         problems.append(f"data fingerprint {checkpoint.get('fingerprint')} is not {meta['fingerprint']}")
     if "arch" in checkpoint or "state_dict" in checkpoint:
@@ -73,10 +75,10 @@ def check_provenance(checkpoint: dict, meta: dict, name: str) -> None:
 
 
 def load_ridge(meta: dict):
-    from src.model.ridge import SeasonalRidge
+    from src.model.ridge import VERSION, SeasonalRidge
 
     state = torch.load(DATA_DIR / RIDGE_CHECKPOINT, weights_only=False)
-    check_provenance(state, meta, RIDGE_CHECKPOINT)
+    check_provenance(state, meta, RIDGE_CHECKPOINT, VERSION)
     return SeasonalRidge.from_state(state)
 
 

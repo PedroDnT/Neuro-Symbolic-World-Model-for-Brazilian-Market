@@ -73,3 +73,16 @@ def test_coverage_rules_do_not_run_on_a_zero_or_positive_expense():
 def test_rule_line_shows_the_numbers():
     line = rules.leverage(100.0, 30.0, 55.0, "model").line()
     assert "BREACH" in line and "0.85" in line and "model" in line
+
+
+def test_breach_is_a_python_bool_for_numpy_inputs():
+    import numpy as np
+
+    result = rules.interest_coverage(np.float64(100.0), np.float64(-100.0))
+    assert result.breach is True
+
+
+def test_negative_equity_does_not_run_on_a_missing_value():
+    result = rules.negative_equity(float("nan"), "model")
+    assert result.breach is None
+    assert "not computed" in result.line()

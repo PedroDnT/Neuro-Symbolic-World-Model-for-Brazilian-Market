@@ -16,6 +16,7 @@ Use:
 from __future__ import annotations
 
 import json
+import pandas as pd
 
 import torch
 
@@ -35,6 +36,15 @@ def brl(value: float) -> str:
         return f"R$ {value / 1e9:,.2f} bn"
     return f"R$ {value / 1e6:,.1f} mn"
 
+
+
+def share(value: float) -> str:
+    return "unknown" if pd.isna(value) else f"{value:.0%}"
+
+
+def _rank(value) -> str:
+    """A rank, or "unranked" when the engine has no result for the company."""
+    return "unranked" if pd.isna(value) else str(int(value))
 
 class Auditor:
     def __init__(self, scenario: Scenario):
@@ -73,8 +83,8 @@ class Auditor:
             "debt exposure",
             exposure.profile_basis if exposure.profile_basis != "none" else exposure.floating_basis,
             f"gross debt {brl(exposure.gross_debt)} (filed accounts 2.01.04 + 2.02.01), "
-            f"floating {exposure.floating_share:.0%} [{exposure.floating_basis}], "
-            f"IPCA {exposure.ipca_share:.0%}, foreign currency not swapped {exposure.fx_share:.0%} [{exposure.profile_basis}]",
+            f"floating {share(exposure.floating_share)} [{exposure.floating_basis}], "
+            f"IPCA {share(exposure.ipca_share)}, foreign currency not swapped {share(exposure.fx_share)} [{exposure.profile_basis}]",
         )
         for effect in scenario.effects[code]:
             add(
@@ -133,7 +143,7 @@ class Auditor:
             f"neural engine ({scenario.neural_variant})",
             "model",
             f"equity base {brl(float(row['neural_equity_base']))}, shock {brl(float(row['neural_equity_shock']))}, "
-            f"change {row['neural_change_pct']:+.2f} % of filed equity, neural rank {row['neural_rank']}. "
+            f"change {row['neural_change_pct']:+.2f} % of filed equity, neural rank {_rank(row['neural_rank'])}. "
             "This engine does not beat the mean-change forecast on the test split.",
         )
         edge_index, weights = scenario.attention
@@ -155,10 +165,13 @@ class Auditor:
     def render(self, ticker: str) -> str:
         row = self.table.loc[ticker]
         flag = " | FILED EQUITY NOT POSITIVE" if row["equity_not_positive"] else ""
-        header = (
-            f"{ticker} | {row['company']} | {row['sector']}\n"
-            f"hybrid rank {int(row['rank'])} of {len(self.table)} | equity change caused by the shock: "
-            f"{row['hybrid_change_pct']:+.2f} % of filed equity{flag}"
-        )
+        if pd.isna(row["rank"]):
+            result = "no hybrid rank: an input of the shock effect is unknown (see the debt exposure line)"
+        else:
+            change = row["hybrid_change_pct"]
+            effect = "not computed" if pd.isna(change) else f"{change:+.2f} % of filed equity"
+            ranked = int(self.table["rank"].notna().sum())
+            result = f"hybrid rank {int(row['rank'])} of {ranked} ranked companies | equity change caused by the shock: {effect}"
+        header = f"{ticker} | {row['company']} | {row['sector']}\n{result}{flag}"
         lines = [f"{record['step']:>2}. [{record['basis']:9s}] {record['kind']}: {record['text']}" for record in self.trail(ticker)]
         return header + "\n" + "\n".join(lines)

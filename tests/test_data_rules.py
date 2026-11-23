@@ -43,3 +43,35 @@ def test_a_stale_checkpoint_raises():
     with pytest.raises(ValueError, match="architecture"):
         dataset.check_provenance({"fingerprint": "new", "arch": 1, "tickers": ["A"], "state_dict": {}}, meta, "x.pt")
     dataset.check_provenance({"fingerprint": "new", "arch": dataset.ARCH, "tickers": ["A"], "state_dict": {}}, meta, "x.pt")
+
+
+def test_a_unit_fix_can_prove_another_unit_fix():
+    rows = [
+        row("2019-12-31", 1, "ÚLTIMO", "2019-12-31", "MIL", "1800000"),
+        row("2020-12-31", 1, "ÚLTIMO", "2020-12-31", "UNIDADE", "1921049"),
+        row("2020-12-31", 1, "PENÚLTIMO", "2019-12-31", "UNIDADE", "1800000"),  # proves 2020-12-31
+        row("2021-06-30", 1, "ÚLTIMO", "2021-06-30", "UNIDADE", "2020126"),
+        row("2021-06-30", 1, "PENÚLTIMO", "2020-12-31", "UNIDADE", "1921049"),  # proven only after the first fix
+    ]
+    fixes = fetch_cvm.unit_fixes([pd.DataFrame(rows)])
+    assert {quarter for _, quarter, _, _ in fixes} == {pd.Timestamp("2020-12-31"), pd.Timestamp("2021-06-30")}
+
+
+def flow(quarter: str, order: str, start: str, end: str, value: str, doc: str = "itr") -> dict:
+    return {
+        "CNPJ_CIA": "1", "DT_REFER": quarter, "VERSAO": "1", "DENOM_CIA": "X", "CD_CVM": "20125",
+        "MOEDA": "REAL", "ESCALA_MOEDA": "MIL", "ORDEM_EXERC": order, "DT_INI_EXERC": start, "DT_FIM_EXERC": end,
+        "CD_CONTA": "3.06.02", "DS_CONTA": "Despesas Financeiras", "VL_CONTA": value, "doc": doc,
+    }
+
+
+def test_a_placeholder_comparative_leaves_the_trailing_expense_empty():
+    dfp = [flow("2013-12-31", "ÚLTIMO", "2013-01-01", "2013-12-31", "-400", "dfp")]
+    itr = [
+        flow("2014-09-30", "ÚLTIMO", "2014-01-01", "2014-09-30", "-300"),
+        flow("2014-09-30", "ÚLTIMO", "2014-07-01", "2014-09-30", "-100"),
+        flow("2014-09-30", "PENÚLTIMO", "2013-01-01", "2013-09-30", "0"),  # placeholder
+        flow("2014-09-30", "PENÚLTIMO", "2013-07-01", "2013-09-30", "-90"),
+    ]
+    wide = fetch_cvm.build_flows([pd.DataFrame(dfp)], [pd.DataFrame(itr)], set())
+    assert pd.isna(wide.loc[(20125, pd.Timestamp("2014-09-30")), "finexp_ttm"])
