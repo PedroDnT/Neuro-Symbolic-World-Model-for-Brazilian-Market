@@ -17,10 +17,13 @@ def correction(**overrides) -> dict:
     return {**base, **overrides}
 
 
+DOCUMENT = {"doc": "dfp", "id_doc": "1", "link": "https://example.invalid/1"}
+
+
 def facts() -> list[dict]:
     return [
-        {"cd_cvm": 1, "task": "debt", "indexer": "USD", "hedged_to_cdi": False, "quote": "Dólar US$ 4.101.588"},
-        {"cd_cvm": 1, "task": "debt", "indexer": "CDI", "hedged_to_cdi": False, "quote": "NCE CDI 100"},
+        {"cd_cvm": 1, "task": "debt", "indexer": "USD", "hedged_to_cdi": False, "quote": "Dólar US$ 4.101.588", "document": DOCUMENT},
+        {"cd_cvm": 1, "task": "debt", "indexer": "CDI", "hedged_to_cdi": False, "quote": "NCE CDI 100", "document": DOCUMENT},
     ]
 
 
@@ -86,6 +89,7 @@ def test_an_added_line_passes_the_extraction_check_and_is_recorded():
     added = fixed[-1]
     assert len(fixed) == 3 and added["corrected_by"] == "test-add" and added["model"] == "correction"
     assert added["location"] == "page 196" and added["hedged_to_cdi"] is True
+    assert added["document"] == DOCUMENT  # the full document of the debt run, with its link
     assert applied[0]["field"] == "added"
 
 
@@ -100,6 +104,13 @@ def test_an_added_line_whose_amount_is_not_in_its_quote_stops_the_run():
 
 
 def test_an_added_line_that_the_extraction_already_holds_stops_the_run():
-    held = facts() + [{"cd_cvm": 1, "task": "debt", "indexer": "USD", "quote": "Dívida Moeda Estrangeira (6.685.532) (5.570.174)"}]
+    held = facts() + [{"cd_cvm": 1, "task": "debt", "indexer": "USD", "quote": "Dívida Moeda Estrangeira (6.685.532) (5.570.174)", "document": DOCUMENT}]
     with pytest.raises(ValueError, match="already holds this line"):
         apply_corrections(held, [addition()], sections_of=lambda evidence: PAGE_196)
+
+
+def test_an_added_line_from_another_document_stops_the_run():
+    other = addition()
+    other["evidence"] = {**other["evidence"], "id_doc": "2"}
+    with pytest.raises(ValueError, match="is not the document of the company's debt lines"):
+        apply_corrections(facts(), [other], sections_of=lambda evidence: PAGE_196)

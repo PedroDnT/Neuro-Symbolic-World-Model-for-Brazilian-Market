@@ -104,10 +104,16 @@ class Auditor:
         mine = self.corrections[self.corrections["cd_cvm"] == code]
         for _, group in mine.groupby("id", sort=False):
             first = group.iloc[0]
+            if first["field"] == "added":
+                change = f"added a debt line: {first['new']}"
+            else:
+                counts = group["old"].astype(str).value_counts()
+                old = ", ".join(f"{value} ({count})" for value, count in counts.items()) if len(counts) > 1 else counts.index[0]
+                change = f"{len(group)} fact(s): {first['field']} {old} -> {first['new']}"
             add(
                 "correction",
                 "corrected",
-                f"{len(group)} fact(s): {first['field']} {first['old']} -> {first['new']}. {first['reason']} "
+                f"{change}. {first['reason']} "
                 f"Evidence ({first['evidence_doc']}, {first['evidence_location']}): \"{first['evidence_quote']}\"",
             )
         for effect in scenario.effects[code]:

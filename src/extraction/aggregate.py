@@ -169,10 +169,14 @@ def _add_fact(facts: list[dict], correction: dict, sections: list[dict], locatio
     if any(validate.normalize(fact["quote"]) == validate.normalize(line["quote"]) for fact in same):
         raise ValueError(f"correction {correction['id']}: the extraction already holds this line; remove the correction")
     evidence = correction["evidence"]
-    document = next(
-        (fact["document"] for fact in same if fact.get("document", {}).get("id_doc") == evidence["id_doc"]),
-        {"doc": evidence["doc"], "id_doc": evidence["id_doc"]},
-    )
+    documents = {fact.get("document", {}).get("id_doc") for fact in same}
+    if documents != {evidence["id_doc"]}:
+        # The line joins the profile of that run and takes its unit, so it must come from the same filing.
+        raise ValueError(
+            f"correction {correction['id']}: its document {evidence['id_doc']} is not the document of the "
+            f"company's debt lines ({sorted(str(d) for d in documents) or 'none'})"
+        )
+    document = same[0]["document"]
     facts.append({
         "cd_cvm": correction["cd_cvm"], "ticker": correction["ticker"], "task": correction["task"], **line,
         "document": document, "model": "correction", "corrected_by": correction["id"], "original": None,
