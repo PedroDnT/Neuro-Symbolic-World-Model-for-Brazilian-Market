@@ -74,12 +74,13 @@ The engine has 2 parts that run side by side.
 `python -m src.simulator.stress_test --selic 3.0 --ptax-pct 15` writes `results/stress_selic+3_ipca+0_ptax+15.csv`.
 
 - 4 companies have filed equity that is not positive (Braskem, Gol, Oi, Recrusul). They rank first, with a flag.
-- The largest hybrid losses come from foreign-currency debt not swapped to CDI: Klabin -39 % of filed equity (84 % of its debt), Suzano -25 % (80 %), JBS -21 % (90 %), Petrobras -8 %. The transmission ignores export revenue in USD, so it overstates the loss of an exporter.
-- 17 companies have no hybrid rank, because an input of their shock effect is unknown, not 0:
-  - 16 have debt but no usable debt profile and no regression estimate (for example Minerva, Magazine Luiza, PRIO).
+- Minerva ranks next (rank 5). Its filed equity is R$ 87 mn against R$ 30 bn of filed debt, so the shock takes about 17 times its equity (-1,735 % of filed equity).
+- The largest other hybrid losses come from foreign-currency debt not swapped to CDI: Klabin -39 % of filed equity (84 % of its debt), Suzano -25 % (80 %), JBS -21 % (90 %), Petrobras -8 %. The transmission ignores export revenue in USD, so it overstates the loss of an exporter.
+- 9 companies have no hybrid rank, because an input of their shock effect is unknown, not 0:
+  - 8 have debt but no usable debt profile and no regression estimate. For 4 of them (Azevedo & Travassos, Magazine Luiza, PRIO, Vulcabras) the filing text has no debt table; for 4 (Direcional, Neoenergia, Taurus, Tupy) the debt lines differ from the stated total by more than 20 %.
   - Allos has a debt profile, but files its loans outside accounts 2.01.04 and 2.02.01, so its gross debt is unknown.
-- 36 companies have interest coverage below 1.5 under the shock. 6 customers get a contagion flag from a supplier with high dependence (for example Ultrapar from Braskem and Petrobras).
-- Rank correlation between the 2 engines: 0.44, over the 79 companies with a result in both.
+- 42 companies have interest coverage below 1.5 under the shock. 6 customers get a contagion flag from a supplier with high dependence (for example Ultrapar from Braskem and Petrobras).
+- Rank correlation between the 2 engines: 0.49, over the 87 companies with a result in both.
 
 ### Rules on known failures
 
@@ -93,8 +94,9 @@ The rules run on the filed history of each company (`python -m src.knowledge.rul
 
 ### Extraction
 
-- 202 runs (100 companies x 2 tasks, plus 1 company that left the universe): 194 ok, 8 with no matching section. Cost: US$ 20.72 (cap US$ 25).
-- Debt profiles for 75 of 100 companies. The others use a regression estimate (7) or nothing (18), with the label in each output.
+- 202 runs (100 companies x 2 tasks, plus 1 company that left the universe): 194 ok, 8 with no matching section. Cost: US$ 21.86 (cap US$ 25).
+- Debt profiles for 83 of 100 companies. The others use a regression estimate (7) or nothing (10), with the label in each output.
+- 12 debt runs ran again after the amount check moved into the extraction step, so the model got the reason for each rejected line. 8 of them gained a usable profile (cost US$ 1.14).
 - An amount must match a number of its quote exactly, or the sum of 2 of them. An earlier tolerance of 0.5 accepted some wrong-scale amounts by chance; the exact check rejects them.
 - 39 supplier links between universe companies. Each quote is also in the version of the form received by 2021-12-31, so the typed neural variant may use them.
 - Known error: the model read 1 dependence level wrong (Grendene's quote says it does not depend on Braskem, but the fact says "high").
@@ -103,6 +105,7 @@ The rules run on the filed history of each company (`python -m src.knowledge.rul
 
 - The hybrid shock effect is an accounting pass-through with stated assumptions: no change in revenue or operating costs, debt held constant, 34 % tax. It is not learned from data.
 - Without a usable debt profile, the IPCA and foreign-currency channels give 0. This understates the loss of a company with foreign-currency debt that the extraction did not read.
+- The extraction reads only the text layer of a filing. 4 filings have no debt table in their text (for example, PRIO's notes are mostly images), so those companies have no debt profile.
 - A debt line counts as foreign currency only when its type or its quote says so. For example, Braskem's bond lines name no currency, so its foreign-currency share (0.30) is too low. Braskem ranks first anyway, because its filed equity is not positive.
 - The neural shock response is an extrapolation from 45 quarters of macro data.
 - The universe holds survivors: companies with all 57 quarters. Statements are the latest filed version, not point-in-time.
