@@ -35,11 +35,13 @@ FLOATING_INDEXERS = {"CDI", "SELIC"}
 FX_INDEXERS = {"USD", "EUR", "OTHER_FX"}
 # The first extraction schema had 1 field for the rate and the currency, so the model often
 # gave "FIXED" or "OTHER" to a fixed-rate or SOFR line in US dollars. Such a line counts as
-# foreign currency when its own quote names a currency code, a foreign reference rate (SOFR,
-# LIBOR), an export advance in foreign currency (ACC) or "moeda estrangeira". The word "bond"
-# alone does not count: it names no currency.
+# foreign currency when its own quote names a currency (a code such as USD, or Dólar, Euro,
+# Iene), a foreign reference rate (SOFR, LIBOR), an export advance in foreign currency (ACC,
+# ACE) or "moeda estrangeira". The word "bond" alone does not count: it names no currency.
 FX_CODE = re.compile(
-    r"(?<![A-Za-z])(USD|EUR|GBP|CAD|AUD|JPY|CHF|CNY|SOFR|LIBOR|ACC)(?![A-Za-z])|US\$|moeda estrangeira", re.I
+    r"(?<![A-Za-z])(USD|EUR|GBP|CAD|AUD|JPY|CHF|CNY|SOFR|LIBOR|ACC|ACE|D[óo]lar(?:es)?|Euros?|Ienes?)(?![A-Za-z])"
+    r"|US\$|moeda estrangeira",
+    re.I,
 )
 
 
@@ -48,6 +50,13 @@ def is_foreign(item: dict) -> bool:
     if item["indexer"] in FX_INDEXERS:
         return True
     return item["indexer"] in ("FIXED", "OTHER") and FX_CODE.search(item["quote"]) is not None
+
+
+def names_currency(item: dict) -> bool:
+    """A line whose type or quote names a foreign currency, whatever its indexer. A dollar loan
+    that the model indexed CDI (swapped, or at a CDI cost) counts here. Used by the FX
+    cross-check, which compares with the filed split by currency of the loan."""
+    return item["indexer"] in FX_INDEXERS or FX_CODE.search(item["quote"]) is not None
 
 
 def is_fx(item: dict) -> bool:
@@ -106,8 +115,9 @@ def source_sections(evidence: dict) -> list[dict]:
 def apply_corrections(facts: list[dict], corrections: list[dict], sections_of=source_sections) -> tuple[list[dict], list[dict]]:
     """Apply reviewed corrections. Return the facts (copies) and 1 record for each changed field.
 
-    A correction must quote its source verbatim, and it must match at least 1 fact. Else the
-    run stops: a correction that no longer applies is never skipped without notice.
+    A correction must quote its source verbatim, and it must match exactly the number of facts
+    in its "expect" field. Else the run stops: a correction that no longer applies, or applies
+    only in part, is never skipped without notice.
     """
     facts = [dict(fact) for fact in facts]
     applied = []
@@ -121,8 +131,10 @@ def apply_corrections(facts: list[dict], corrections: list[dict], sections_of=so
             if fact["cd_cvm"] == correction["cd_cvm"] and fact["task"] == correction["task"]
             and all(fact.get(field) in allowed for field, allowed in correction["match"].items())
         ]
-        if not hits:
-            raise ValueError(f"correction {correction['id']}: it matches no fact; update or remove it")
+        if len(hits) != correction["expect"]:
+            raise ValueError(
+                f"correction {correction['id']}: it matches {len(hits)} facts, not {correction['expect']}; update or remove it"
+            )
         for fact in hits:
             original = {field: fact.get(field) for field in correction["set"]}
             fact.update(correction["set"])
@@ -275,7 +287,7 @@ def debt_profile(
         contract = amount_of(lambda i: i["indexer"] in FLOATING_INDEXERS)
         ipca = amount_of(lambda i: i["indexer"] == "IPCA" and not i.get("hedged_to_cdi"))
         fx = amount_of(is_fx)
-        foreign = amount_of(is_foreign)
+        foreign = amount_of(names_currency)
         unit = run.get("summary", {}).get("unit")
         total = run.get("summary", {}).get("total_debt")
         filed = float(filed_debt.get(cd_cvm, float("nan")))

@@ -20,7 +20,7 @@ import pandas as pd
 
 import torch
 
-from src.extraction.aggregate import CORRECTIONS_APPLIED
+from src.extraction.aggregate import APPLIED_COLUMNS, CORRECTIONS_APPLIED
 from src.knowledge import rules
 from src.knowledge.graph import GRAPH_PATH
 from src.simulator.stress_test import ACCOUNTS, Scenario
@@ -57,7 +57,7 @@ class Auditor:
         graph = json.loads(GRAPH_PATH.read_text()) if GRAPH_PATH.exists() else {"nodes": [], "edges": []}
         self.names = {node["id"]: node["properties"].get("content", node["id"]) for node in graph["nodes"]}
         self.edges = graph["edges"]
-        corrections = pd.read_csv(CORRECTIONS_APPLIED) if CORRECTIONS_APPLIED.exists() else pd.DataFrame(columns=["cd_cvm"])
+        corrections = pd.read_csv(CORRECTIONS_APPLIED) if CORRECTIONS_APPLIED.exists() else pd.DataFrame(columns=APPLIED_COLUMNS)
         self.corrections = corrections
 
     def _links(self, node: str, kind: str) -> list[dict]:

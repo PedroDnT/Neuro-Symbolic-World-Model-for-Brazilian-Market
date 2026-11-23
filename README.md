@@ -44,12 +44,12 @@ The engine has 2 parts that run side by side.
    - Each loss is after a 34 % tax rate. Each rule keeps the balance sheet balanced.
 3. The debt lines come from the notes to the 2024 statements, read by an LLM with a verbatim quote for each line (`src/extraction/`).
    - A quote must be in the source text. An amount must be a number of its own quote, or the sum of 2 of them (current plus non-current).
-   - A fixed-rate or SOFR line counts as foreign currency when its quote names a currency code (USD, EUR and similar), SOFR, LIBOR, ACC or "moeda estrangeira".
+   - A fixed-rate or SOFR line counts as foreign currency when its quote names a currency (a code such as USD, or Dólar, Euro, Iene), SOFR, LIBOR, ACC, ACE or "moeda estrangeira".
    - The unit of a table is the stated thousand or million. Else it is the factor (x1, x1,000 or x1,000,000) that puts the line sum closest to the filed debt, accepted only between 0.5 and 2 times the filed debt. The model's own "BRL" label was wrong for 3 tables in thousands.
    - A profile is usable when its line sum is within 20 % of the total that the note states, or of the filed debt, or when the note states no total.
    - Without a usable debt profile, the floating debt is the filed debt times a regression estimate of the floating share (label "estimate"), and the IPCA and foreign-currency channels give 0. Without an estimate either, the SELIC effect stays empty and the company gets no rank.
-   - Reviewed corrections (`src/extraction/corrections.json`) fix a misread fact. Each correction quotes its source verbatim, and the run stops when a correction no longer matches a fact or its quote is not in the source. The audit trail shows each one with the label "corrected".
-   - FX cross-check: the foreign-currency lines of the note (swapped or not) are compared with the filed split "Em Moeda Estrangeira" (accounts 2.01.04.01.02 + 2.02.01.01.02). A gap is flagged in the stress table and the audit trail. It does not change the shock, because the filed split does not show swaps.
+   - Reviewed corrections (`src/extraction/corrections.json`) fix a misread fact. Each correction quotes its source verbatim and states how many facts it changes. The run stops when that count does not match or the quote is not in the source. The audit trail shows each one with the label "corrected".
+   - FX cross-check: the lines of the note whose type or quote names a foreign currency, whatever their indexer (swapped or not), are compared with the filed split "Em Moeda Estrangeira" (accounts 2.01.04.01.02 + 2.02.01.01.02). A gap is flagged in the stress table and the audit trail. It does not change the shock, because the filed split does not show swaps.
 4. Contagion flag: a customer whose supplier (high dependence, from the 2021 reference form) breaches interest coverage under the shock.
 
 **Neural engine (comparison).** The graph recurrent model of the original work order (`src/model/`): GATv2 attention over sector edges, a GRU state, a Gaussian latent, and an accounting projection layer. It sees the macro inputs, so the shock moves its forecast.
@@ -83,13 +83,13 @@ The engine has 2 parts that run side by side.
 - 4 companies have filed equity that is not positive (Braskem, Gol, Oi, Recrusul). They rank first, with a flag.
 - Minerva ranks next (rank 5). Its filed equity is R$ 87 mn against R$ 14.7 bn of unswapped dollar debt in its note, so the shock takes about 22 times its equity (-2,192 % of filed equity).
 - The next largest hybrid losses come from foreign-currency debt not swapped to CDI: Klabin -40 % of filed equity (84 % of its note debt), Suzano -26 % (80 %), JBS -21 % (90 %), Mahle Metal Leve -12 % (92 %), Iochpe-Maxion -8 % (57 %), BRF -8 % (60 %) and Embraer -7 % (99 %). The transmission ignores export revenue in USD, so it overstates the loss of an exporter.
-- Petrobras falls to rank 22 (-3 %): its note holds R$ 143 bn of loans, and the other R$ 230 bn of its filed debt are leases, which get no shock (see Limits).
+- Petrobras falls to rank 21 (-3 %): its note holds R$ 143 bn of loans, and the other R$ 230 bn of its filed debt are leases, which get no shock (see Limits).
 - 7 companies have no hybrid rank, because an input of their shock effect is unknown, not 0:
   - Azevedo & Travassos, Magazine Luiza, PRIO and Vulcabras: the text layer of the filing has no debt table.
   - Neoenergia and Tupy: the extracted lines miss part of the debt (the line sum is 76 % and 77 % of the stated total).
   - Allos: its filed debt accounts are 0 and its note states no unit, so its debt in reais is unknown.
 - 43 companies have interest coverage below 1.5 under the shock. 5 customers get a contagion flag from a supplier with high dependence: Ultrapar (from Braskem and Petrobras), Braskem and Usiminas (from Petrobras), Unipar (from Braskem) and Cogna (from Suzano).
-- CPFL ranks 38th (-1.8 %): a reviewed correction marks its dollar loans as swapped to CDI, so they move from the PTAX channel to the floating channel.
+- CPFL ranks 38th (-1.8 %) and Sabesp 59th (-0.9 %): reviewed corrections mark their foreign-currency loans (CPFL: dollar, euro and yen) as swapped to CDI, so they move from the PTAX channel to the floating channel.
 - Rank correlation between the 2 engines: 0.47, over the 89 companies with a result in both.
 
 ### Rules on known failures
@@ -109,9 +109,11 @@ The rules run on the filed history of each company (`python -m src.knowledge.rul
 - 12 debt runs ran again after the amount check moved into the extraction step, so the model got the reason for each rejected line (cost US$ 1.14). 10 of the 12 now have a usable profile: 8 from the rerun, plus Direcional and Taurus through the filed-debt check.
 - An amount must match a number of its quote exactly, or the sum of 2 of them. An earlier tolerance of 0.5 accepted some wrong-scale amounts by chance; the exact check rejects them.
 - 39 supplier links between universe companies. Each quote is also in the version of the form received by 2021-12-31, so the typed neural variant may use them.
-- 2 reviewed corrections (4 fields): CPFL's 3 foreign-currency loans are swapped to CDI (DFP 2024, page 140), and Grendene does not depend on Braskem (its own quote, FRE 2021). The log is `data/corrections_applied.csv`.
-- FX cross-check: 23 profiles match the filed split "Em Moeda Estrangeira" within 20 %. 49 companies leave the split at 0 (for example Petrobras, Vale, BRF), so the check cannot run for them. 11 are flagged:
-  - Foreign-currency lines missing against the filed split: Braskem (0.42 of filed), Eletrobras (now Axia Energia), Oi and Energisa (0), Sabesp (0.56), Schulz (0.53), Frasle (0.41), Randon (0.26), PBG (0.19) and Eternit (0). Their PTAX loss is likely too low.
+- 3 reviewed corrections (5 facts): CPFL's 3 foreign-currency loans are swapped to CDI (DFP 2024, page 140), Sabesp's SOFR line is swapped to CDI (DFP 2024, page 115), and Grendene does not depend on Braskem (its own quote, FRE 2021). The log is `data/corrections_applied.csv`.
+- FX cross-check: 25 profiles match the filed split "Em Moeda Estrangeira" within 20 %. 49 companies leave the split at 0 (for example Petrobras, Vale, BRF), so the check cannot run for them. 9 are flagged. A flag means the note's lines and the filed split disagree; the cause and its effect differ by company:
+  - PTAX loss too low: Braskem (0.42 of filed; its bond lines name no currency), Randon (0.26) and Frasle (0.41; their fixed-rate lines name no currency), Schulz (0.76; 1 dollar line of R$ 94 mn was dropped for a misread amount). Oi (0) is not checked yet.
+  - SELIC loss too low, PTAX correct: Energisa (0) swaps all its foreign-currency debt to CDI, and the swap's CDI leg (about R$ 6.9 bn) is missing from its lines. Sabesp (0.56) swaps all its foreign-currency debt, and about R$ 1.5 bn of it (the yen loans) is not identified in its lines, so it is not in its floating debt.
+  - No error in the shock: Eletrobras (now Axia Energia, 0) swaps its foreign-currency debt to CDI, and that debt is already in its CDI line.
   - JBS has 13 times more foreign-currency lines than its filed split, which looks incomplete.
 
 ## Limits
@@ -121,7 +123,7 @@ The rules run on the filed history of each company (`python -m src.knowledge.rul
 - The extraction reads only the text layer of a filing. 8 debt runs found no debt table in the text. 5 of them are companies with filed debt: Azevedo & Travassos, Magazine Luiza, PRIO (notes mostly images), Vulcabras and Positivo (notes text is unreadable glyphs). Positivo keeps a rank through the floating-share estimate, but its IPCA and foreign-currency channels give 0.
 - The shock uses the debt-note amounts, so leases outside the note get no shock. For 9 companies the gap between the note and the filed debt equals their filed lease subaccounts (2.01.04.03 + 2.02.01.03) exactly: Petrobras R$ 230 bn, Vale R$ 4.4 bn, Cogna R$ 2.9 bn, Panvel, Tegma, Alupar, Mahle Metal Leve, Grendene and Unipar. For Yduqs it is close (a gap of R$ 1.63 bn against R$ 1.65 bn of leases). Leases in reais at a fixed rate are not exposed, but leases in dollars also revalue with PTAX, so the PTAX loss of a company with dollar leases is too low.
 - For 3 companies the note lines miss debt that is not leases, so their shock is too low. Romi's lines cover 54 % of it. Vivo's leases are R$ 15.2 bn of a R$ 17.2 bn gap, so its lines cover 65 %. EZTC's only line is TR-indexed, and its CDI debentures (about R$ 0.3 bn) are missing, so its SELIC effect is 0.
-- Known classification error: Minerva's floating debt counts its swapped lines before a R$ 7.9 bn swap offset in its note, so its SELIC loss is up to R$ 0.16 bn too high; its rank does not change. The 10 companies that the FX cross-check flags for missing lines have a PTAX loss that is likely too low.
+- Known classification error: Minerva's floating debt counts its swapped lines before a R$ 7.9 bn swap offset in its note, so its SELIC loss is up to R$ 0.16 bn too high; its rank does not change. The FX cross-check finds a PTAX loss that is too low for Braskem, Randon, Frasle and Schulz, and a SELIC loss that is too low for Energisa and Sabesp (see Extraction).
 - A debt line counts as foreign currency only when its type or its quote says so. For example, Braskem's bond lines name no currency, so its foreign-currency share (0.30) is too low. Braskem ranks first anyway, because its filed equity is not positive.
 - The neural shock response is an extrapolation from 45 quarters of macro data.
 - The universe holds survivors: companies with all 57 quarters. Statements are the latest filed version, not point-in-time.

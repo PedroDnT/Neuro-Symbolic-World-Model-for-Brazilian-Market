@@ -11,7 +11,7 @@ SOURCE = [{"location": "page 140", "text": "A exposição relativa à captação
 def correction(**overrides) -> dict:
     base = {
         "id": "test-fix", "ticker": "T1", "cd_cvm": 1, "task": "debt",
-        "match": {"indexer": ["USD"]}, "set": {"hedged_to_cdi": True}, "reason": "test",
+        "match": {"indexer": ["USD"]}, "expect": 1, "set": {"hedged_to_cdi": True}, "reason": "test",
         "evidence": {"doc": "dfp", "id_doc": "1", "quote": "coberta por operações financeiras de swap"},
     }
     return {**base, **overrides}
@@ -35,8 +35,15 @@ def test_a_correction_changes_only_the_matching_facts_and_is_recorded():
 
 
 def test_a_correction_that_matches_no_fact_stops_the_run():
-    with pytest.raises(ValueError, match="matches no fact"):
+    with pytest.raises(ValueError, match="matches 0 facts, not 1"):
         apply_corrections(facts(), [correction(cd_cvm=2)], sections_of=lambda evidence: SOURCE)
+
+
+def test_a_correction_that_matches_only_part_of_its_facts_stops_the_run():
+    # A rerun relabels 1 of 2 dollar lines: the correction must not apply to the other alone.
+    two = correction(expect=2)
+    with pytest.raises(ValueError, match="matches 1 facts, not 2"):
+        apply_corrections(facts(), [two], sections_of=lambda evidence: SOURCE)
 
 
 def test_a_correction_without_its_quote_in_the_source_stops_the_run():
@@ -49,6 +56,6 @@ def test_the_correction_file_is_well_formed():
     entries = json.loads(CORRECTIONS.read_text())
     assert len({entry["id"] for entry in entries}) == len(entries)
     for entry in entries:
-        assert {"id", "ticker", "cd_cvm", "task", "match", "set", "reason", "evidence"} <= set(entry)
+        assert {"id", "ticker", "cd_cvm", "task", "match", "expect", "set", "reason", "evidence"} <= set(entry)
         assert {"doc", "id_doc", "quote"} <= set(entry["evidence"])
         assert all(isinstance(allowed, list) for allowed in entry["match"].values())

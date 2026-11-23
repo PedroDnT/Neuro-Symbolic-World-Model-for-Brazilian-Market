@@ -4,8 +4,17 @@
     "ticker": "CPFE3",
     "cd_cvm": 18660,
     "task": "debt",
-    "match": {"indexer": ["USD", "EUR", "OTHER_FX"]},
-    "set": {"hedged_to_cdi": true},
+    "match": {
+      "indexer": [
+        "USD",
+        "EUR",
+        "OTHER_FX"
+      ]
+    },
+    "expect": 3,
+    "set": {
+      "hedged_to_cdi": true
+    },
     "reason": "The note says that swaps cover the foreign-currency funding, but no debt line states it, so the extraction marked the lines as not swapped.",
     "evidence": {
       "doc": "dfp",
@@ -18,13 +27,44 @@
     "ticker": "GRND3",
     "cd_cvm": 19615,
     "task": "suppliers",
-    "match": {"counterparty": ["Braskem S.A"]},
-    "set": {"dependence": "low"},
+    "match": {
+      "counterparty": [
+        "Braskem S.A"
+      ]
+    },
+    "expect": 1,
+    "set": {
+      "dependence": "low"
+    },
     "reason": "The quote says that Grendene does not depend on Braskem or on any other supplier, but the extraction set the dependence to high.",
     "evidence": {
       "doc": "fre",
       "id_doc": "114234",
       "quote": "julgamos que não temos uma relação de dependência deste ou de qualquer outro fornecedor"
+    }
+  },
+  {
+    "id": "sabesp-fx-loans-swapped-to-cdi",
+    "ticker": "SBSP3",
+    "cd_cvm": 14443,
+    "task": "debt",
+    "match": {
+      "indexer": [
+        "OTHER"
+      ],
+      "amount": [
+        1882325.0
+      ]
+    },
+    "expect": 1,
+    "set": {
+      "hedged_to_cdi": true
+    },
+    "reason": "The note says that 13 swaps cover the whole foreign-currency debt (dollar and yen) and convert it to a cost in CDI, but the SOFR line does not state it, so the extraction marked it as not swapped.",
+    "evidence": {
+      "doc": "dfp",
+      "id_doc": "145844",
+      "quote": "haviam 13 operações de swap vigentes, totalizando o valor nocional de US$ 303.977 mil e Iene 36.787.581 mil para proteção da taxa de juros e variação cambial"
     }
   }
 ]

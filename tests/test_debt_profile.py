@@ -76,3 +76,10 @@ def test_the_fx_check_counts_swapped_lines_too():
     assert profile["fx_debt_brl"] == 0  # swapped: no PTAX shock
     assert profile["fx_lines_brl"] == pytest.approx(600_000.0)
     assert profile["fx_check"] == "ok"
+
+
+def test_the_fx_check_counts_a_dollar_line_indexed_to_cdi():
+    from src.extraction.aggregate import is_fx, names_currency
+
+    swapped = line(5, "CDI", 99.0, "PPE com swap (b) US$ nov-29 97,00% CDI 99", hedged=True)
+    assert names_currency(swapped) and not is_fx(swapped)  # in the check, but no PTAX shock
