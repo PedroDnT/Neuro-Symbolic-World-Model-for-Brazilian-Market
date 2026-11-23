@@ -56,6 +56,11 @@ class Exposure:
     ipca_debt: float
     fx_debt: float
     amount_source: str  # where the amounts come from, for the audit trail
+    # Cross-check against the filed split "Em Moeda Estrangeira" (see aggregate.fx_check).
+    # Shown only; it does not change the shock.
+    fx_lines: float = float("nan")  # foreign-currency lines of the note, swapped or not
+    filed_fx: float = float("nan")
+    fx_check: str = "no_profile"
 
 
 @dataclass(frozen=True)
@@ -119,6 +124,8 @@ def exposures(statements_last: pd.DataFrame, profile: pd.DataFrame, floating_est
                 float(np.nan_to_num(shares["ipca_share"])), float(np.nan_to_num(shares["fx_share"])), "extracted",
                 float(shares["floating_debt_brl"]), float(np.nan_to_num(shares["ipca_debt_brl"])),
                 float(np.nan_to_num(shares["fx_debt_brl"])), source,
+                float(shares.get("fx_lines_brl", float("nan"))), float(shares.get("filed_fx_brl", float("nan"))),
+                str(shares.get("fx_check", "no_profile")),
             )
         else:
             floating = estimate.loc[cd_cvm, "floating_share"] if cd_cvm in estimate.index else np.nan

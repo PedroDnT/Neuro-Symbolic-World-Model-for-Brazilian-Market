@@ -22,8 +22,7 @@ from semantica.context import ContextGraph
 
 from src.data_ingestion.download import DATA_DIR, RESULTS_DIR
 from src.data_ingestion.fetch_fre import load_universe
-from src.extraction.aggregate import _read, party_key, universe_keys
-from src.extraction.pipeline import FACTS
+from src.extraction.aggregate import load_facts, party_key, universe_keys
 from src.knowledge.sensitivity import floating_shares
 
 MACROS = {"SELIC": "SELIC target rate", "IPCA": "IPCA inflation", "PTAX": "USD/BRL exchange rate"}
@@ -33,7 +32,8 @@ GRAPH_PATH = RESULTS_DIR / "knowledge_graph.json"
 def _provenance(fact: dict) -> dict:
     document = fact["document"]
     return {
-        "basis": "extracted",
+        "basis": "corrected" if fact.get("corrected_by") else "extracted",
+        "correction": fact.get("corrected_by", ""),
         "quote": fact["quote"],
         "location": fact["location"],
         "document_id": document["id_doc"],
@@ -81,7 +81,7 @@ def build() -> ContextGraph:
         graph.add_node(node_id, kind, content=name)
         return node_id
 
-    for fact in _read(FACTS):
+    for fact in load_facts():
         company = node_of.get(fact["cd_cvm"])
         if company is None:
             continue

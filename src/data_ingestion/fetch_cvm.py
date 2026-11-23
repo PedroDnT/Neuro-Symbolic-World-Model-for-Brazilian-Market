@@ -47,8 +47,11 @@ BALANCE = {
     "1.01.01": ("cash", "caixa e equivalentes de caixa"),
     "2.01": ("current_liabilities", "passivo circulante"),
     "2.01.04": ("debt_short", "emprestimos e financiamentos"),
+    # Optional split of the standard chart; many companies leave it at 0 (see aggregate.fx_check).
+    "2.01.04.01.02": ("fx_loans_short", "em moeda estrangeira"),
     "2.02": ("noncurrent_liabilities", "passivo nao circulante"),
     "2.02.01": ("debt_long", "emprestimos e financiamentos"),
+    "2.02.01.01.02": ("fx_loans_long", "em moeda estrangeira"),
     "2.03": ("equity", "patrimonio liquido"),
 }
 FLOWS = {

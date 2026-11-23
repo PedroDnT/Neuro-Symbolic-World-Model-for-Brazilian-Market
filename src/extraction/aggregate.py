@@ -22,7 +22,10 @@ import re
 
 import pandas as pd
 
-from src.data_ingestion.download import DATA_DIR
+from dataclasses import asdict
+from pathlib import Path
+
+from src.data_ingestion.download import DATA_DIR, RAW_DIR
 from src.data_ingestion.fetch_fre import company_key, load_universe
 from src.extraction import sources, validate
 from src.extraction.pipeline import FACTS, RUNS, TASKS
@@ -40,14 +43,26 @@ FX_CODE = re.compile(
 )
 
 
-def is_fx(item: dict) -> bool:
-    """A foreign-currency line that is not swapped to CDI."""
-    if item.get("hedged_to_cdi"):
-        return False
+def is_foreign(item: dict) -> bool:
+    """A line in a foreign currency, swapped to CDI or not."""
     if item["indexer"] in FX_INDEXERS:
         return True
     return item["indexer"] in ("FIXED", "OTHER") and FX_CODE.search(item["quote"]) is not None
+
+
+def is_fx(item: dict) -> bool:
+    """A foreign-currency line that is not swapped to CDI."""
+    return not item.get("hedged_to_cdi") and is_foreign(item)
 TOTAL_TOLERANCE = (0.8, 1.2)
+# Reviewed manual corrections of extracted facts, each with a verbatim quote of its source.
+CORRECTIONS = Path(__file__).with_name("corrections.json")
+CORRECTIONS_APPLIED = DATA_DIR / "corrections_applied.csv"
+APPLIED_COLUMNS = [
+    "id", "cd_cvm", "ticker", "task", "field", "old", "new", "fact_quote",
+    "reason", "evidence_doc", "evidence_location", "evidence_quote",
+]
+# The filed split "Em Moeda Estrangeira" against the foreign-currency lines of the note.
+FX_CHECK_BAND = (0.8, 1.2)
 # The unit label of the model is wrong for some tables ("BRL" for a table in thousands), so
 # only a stated thousand or million counts. Else the unit is the factor that puts the line
 # sum closest to the filed debt, and that factor counts only inside this band.
@@ -59,6 +74,7 @@ TRAIN_END = "2021-12-31"
 PROFILE_COLUMNS = [
     "cd_cvm", "ticker", "floating_share", "contract_cdi_share", "ipca_share", "fx_share",
     "floating_debt_brl", "ipca_debt_brl", "fx_debt_brl", "filed_debt_brl", "sum_over_filed",
+    "fx_lines_brl", "filed_fx_brl", "fx_check",
     "amount_sum", "total_debt", "unit", "unit_factor", "unit_basis",
     "lines", "lines_without_amount_in_quote", "status",
 ]
@@ -76,6 +92,60 @@ def _read(path) -> list[dict]:
     if not path.exists():
         return []
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def source_sections(evidence: dict) -> list[dict]:
+    """The full text of a cached source document, as sections for validate.find_location."""
+    path = RAW_DIR / "rad" / f"{evidence['doc']}_{evidence['id_doc']}.zip"
+    if not path.exists():
+        raise FileNotFoundError(f"{path} is not cached: run python -m src.extraction.pipeline for this company first")
+    found = sources.dfp_pages(path) if evidence["doc"] == "dfp" else sources.fre_sections(path)
+    return [asdict(section) for section in found]
+
+
+def apply_corrections(facts: list[dict], corrections: list[dict], sections_of=source_sections) -> tuple[list[dict], list[dict]]:
+    """Apply reviewed corrections. Return the facts (copies) and 1 record for each changed field.
+
+    A correction must quote its source verbatim, and it must match at least 1 fact. Else the
+    run stops: a correction that no longer applies is never skipped without notice.
+    """
+    facts = [dict(fact) for fact in facts]
+    applied = []
+    for correction in corrections:
+        evidence = correction["evidence"]
+        location = validate.find_location(evidence["quote"], sections_of(evidence))
+        if location is None:
+            raise ValueError(f"correction {correction['id']}: the evidence quote is not in {evidence['doc']} {evidence['id_doc']}")
+        hits = [
+            fact for fact in facts
+            if fact["cd_cvm"] == correction["cd_cvm"] and fact["task"] == correction["task"]
+            and all(fact.get(field) in allowed for field, allowed in correction["match"].items())
+        ]
+        if not hits:
+            raise ValueError(f"correction {correction['id']}: it matches no fact; update or remove it")
+        for fact in hits:
+            original = {field: fact.get(field) for field in correction["set"]}
+            fact.update(correction["set"])
+            fact["corrected_by"] = correction["id"]
+            fact["original"] = original
+            for field, new in correction["set"].items():
+                applied.append({
+                    "id": correction["id"], "cd_cvm": correction["cd_cvm"], "ticker": correction["ticker"],
+                    "task": correction["task"], "field": field, "old": original[field], "new": new,
+                    "fact_quote": fact["quote"][:160], "reason": correction["reason"],
+                    "evidence_doc": f"{evidence['doc']} {evidence['id_doc']}", "evidence_location": location,
+                    "evidence_quote": evidence["quote"],
+                })
+    return facts, applied
+
+
+def load_facts(write_log: bool = False) -> list[dict]:
+    """The extracted facts with the reviewed corrections applied."""
+    corrections = json.loads(CORRECTIONS.read_text()) if CORRECTIONS.exists() else []
+    facts, applied = apply_corrections(_read(FACTS), corrections)
+    if write_log:
+        pd.DataFrame(applied, columns=APPLIED_COLUMNS).to_csv(CORRECTIONS_APPLIED, index=False)
+    return facts
 
 
 def universe_keys(universe: pd.DataFrame) -> dict[str, int]:
@@ -160,7 +230,25 @@ def unit_factor(unit: str | None, amount_sum: float, filed_debt: float) -> tuple
     return None, "unclear"
 
 
-def debt_profile(facts: list[dict], runs: list[dict], filed_debt: dict[int, float]) -> pd.DataFrame:
+def fx_check(fx_lines: float, filed_fx: float) -> str:
+    """Compare the foreign-currency lines of the note with the filed split "Em Moeda Estrangeira".
+
+    Many companies leave the split at 0 even with foreign-currency debt, so a filed 0 means
+    that the check cannot run, not that the company has no such debt.
+    """
+    if not filed_fx > 0:
+        return "no_filed_split"
+    ratio = fx_lines / filed_fx
+    if ratio < FX_CHECK_BAND[0]:
+        return "fx_lines_missing"
+    if ratio > FX_CHECK_BAND[1]:
+        return "fx_above_filed"
+    return "ok"
+
+
+def debt_profile(
+    facts: list[dict], runs: list[dict], filed_debt: dict[int, float], filed_fx: dict[int, float] | None = None
+) -> pd.DataFrame:
     """For each company: its debt by rate, as shares and as amounts in reais, with a status.
 
     A line counts only when its amount is 1 of the numbers of its quote.
@@ -187,6 +275,7 @@ def debt_profile(facts: list[dict], runs: list[dict], filed_debt: dict[int, floa
         contract = amount_of(lambda i: i["indexer"] in FLOATING_INDEXERS)
         ipca = amount_of(lambda i: i["indexer"] == "IPCA" and not i.get("hedged_to_cdi"))
         fx = amount_of(is_fx)
+        foreign = amount_of(is_foreign)
         unit = run.get("summary", {}).get("unit")
         total = run.get("summary", {}).get("total_debt")
         filed = float(filed_debt.get(cd_cvm, float("nan")))
@@ -212,6 +301,8 @@ def debt_profile(facts: list[dict], runs: list[dict], filed_debt: dict[int, floa
         def brl(amount: float):
             return amount * factor if usable else None
 
+        fx_filed = float((filed_fx or {}).get(cd_cvm, float("nan")))
+
         rows.append(
             {
                 "cd_cvm": cd_cvm,
@@ -225,6 +316,9 @@ def debt_profile(facts: list[dict], runs: list[dict], filed_debt: dict[int, floa
                 "fx_debt_brl": brl(fx),
                 "filed_debt_brl": filed,
                 "sum_over_filed": sum_over_filed,
+                "fx_lines_brl": brl(foreign),
+                "filed_fx_brl": fx_filed,
+                "fx_check": fx_check(foreign * factor, fx_filed) if usable else "no_profile",
                 "amount_sum": amount_sum,
                 "total_debt": total,
                 "unit": unit,
@@ -238,20 +332,24 @@ def debt_profile(facts: list[dict], runs: list[dict], filed_debt: dict[int, floa
     return pd.DataFrame(rows, columns=PROFILE_COLUMNS).sort_values("ticker")
 
 
-def filed_debt_at(date: str) -> dict[int, float]:
-    """Filed debt in reais (accounts 2.01.04 + 2.02.01) of each company at a date."""
+def filed_at(date: str) -> tuple[dict[int, float], dict[int, float]]:
+    """Filed debt in reais of each company at a date: total (accounts 2.01.04 + 2.02.01) and
+    the split "Em Moeda Estrangeira" (2.01.04.01.02 + 2.02.01.01.02)."""
     statements = pd.read_csv(DATA_DIR / "cvm_quarterly.csv", parse_dates=["quarter"])
+    if "fx_loans_short" not in statements:
+        raise ValueError("data/cvm_quarterly.csv is older than the code: run python -m src.data_ingestion.fetch_cvm")
     last = statements[statements["quarter"] == pd.Timestamp(date)]
     debt = last["debt_short"].fillna(0) + last["debt_long"].fillna(0)
-    return dict(zip(last["cd_cvm"], debt))
+    fx = last["fx_loans_short"].fillna(0) + last["fx_loans_long"].fillna(0)
+    return dict(zip(last["cd_cvm"], debt)), dict(zip(last["cd_cvm"], fx))
 
 
 def main() -> None:
-    facts, runs = _read(FACTS), _read(RUNS)
+    facts, runs = load_facts(write_log=True), _read(RUNS)
     universe = load_universe()
     edges, counts = supplier_edges(facts, universe)
     edges.to_csv(DATA_DIR / "extracted_edges.csv", index=False)
-    profile = debt_profile(facts, runs, filed_debt_at(f"{TASKS['debt']['year']}-12-31"))
+    profile = debt_profile(facts, runs, *filed_at(f"{TASKS['debt']['year']}-12-31"))
     profile.to_csv(DATA_DIR / "debt_profile.csv", index=False)
 
     ticker = dict(zip(universe["cd_cvm"], universe["ticker"]))
@@ -266,6 +364,9 @@ def main() -> None:
             f"  floating share for {len(usable)} companies: median {usable['floating_share'].median():.2f}, "
             f"contract CDI share median {usable['contract_cdi_share'].median():.2f}"
         )
+        print(f"  FX cross-check: {profile['fx_check'].value_counts().to_dict()}")
+        corrected = pd.read_csv(CORRECTIONS_APPLIED)
+        print(f"  corrections applied: {len(corrected)} fields, " + ", ".join(sorted(set(corrected["id"]))))
         inferred = profile[profile["unit_basis"] == "inferred"]
         print("  inferred units: " + ", ".join(
             f"{row.ticker} x{row.unit_factor:,.0f} (sum / filed debt {row.sum_over_filed:.2f})" for row in inferred.itertuples()

@@ -20,6 +20,7 @@ import pandas as pd
 
 import torch
 
+from src.extraction.aggregate import CORRECTIONS_APPLIED
 from src.knowledge import rules
 from src.knowledge.graph import GRAPH_PATH
 from src.simulator.stress_test import ACCOUNTS, Scenario
@@ -56,6 +57,8 @@ class Auditor:
         graph = json.loads(GRAPH_PATH.read_text()) if GRAPH_PATH.exists() else {"nodes": [], "edges": []}
         self.names = {node["id"]: node["properties"].get("content", node["id"]) for node in graph["nodes"]}
         self.edges = graph["edges"]
+        corrections = pd.read_csv(CORRECTIONS_APPLIED) if CORRECTIONS_APPLIED.exists() else pd.DataFrame(columns=["cd_cvm"])
+        self.corrections = corrections
 
     def _links(self, node: str, kind: str) -> list[dict]:
         return [e for e in self.edges if e["type"] == kind and node in (e["source_id"], e["target_id"])]
@@ -88,6 +91,25 @@ class Auditor:
             f"foreign currency not swapped {brl(exposure.fx_debt)} ({share(exposure.fx_share)}) [{exposure.profile_basis}]; "
             f"source: {exposure.amount_source}",
         )
+        if exposure.fx_check == "no_filed_split":
+            add("FX cross-check", "filed", "the filing leaves the split 'Em Moeda Estrangeira' at 0, so the check does not run")
+        elif exposure.fx_check != "no_profile":
+            add(
+                "FX cross-check",
+                "filed",
+                f"foreign-currency lines of the note {brl(exposure.fx_lines)} (swapped or not) against the filed split "
+                f"'Em Moeda Estrangeira' (2.01.04.01.02 + 2.02.01.01.02) {brl(exposure.filed_fx)}: {exposure.fx_check}. "
+                "A flag is shown only; it does not change the shock.",
+            )
+        mine = self.corrections[self.corrections["cd_cvm"] == code]
+        for _, group in mine.groupby("id", sort=False):
+            first = group.iloc[0]
+            add(
+                "correction",
+                "corrected",
+                f"{len(group)} fact(s): {first['field']} {first['old']} -> {first['new']}. {first['reason']} "
+                f"Evidence ({first['evidence_doc']}, {first['evidence_location']}): \"{first['evidence_quote']}\"",
+            )
         for effect in scenario.effects[code]:
             add(
                 f"transmission, quarter +{effect.quarter}",

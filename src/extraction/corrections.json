@@ -1,0 +1,30 @@
+[
+  {
+    "id": "cpfl-fx-loans-swapped-to-cdi",
+    "ticker": "CPFE3",
+    "cd_cvm": 18660,
+    "task": "debt",
+    "match": {"indexer": ["USD", "EUR", "OTHER_FX"]},
+    "set": {"hedged_to_cdi": true},
+    "reason": "The note says that swaps cover the foreign-currency funding, but no debt line states it, so the extraction marked the lines as not swapped.",
+    "evidence": {
+      "doc": "dfp",
+      "id_doc": "145056",
+      "quote": "A exposição relativa à captação de recursos em moeda estrangeira está coberta por operações financeiras de swap."
+    }
+  },
+  {
+    "id": "grendene-no-dependence-on-braskem",
+    "ticker": "GRND3",
+    "cd_cvm": 19615,
+    "task": "suppliers",
+    "match": {"counterparty": ["Braskem S.A"]},
+    "set": {"dependence": "low"},
+    "reason": "The quote says that Grendene does not depend on Braskem or on any other supplier, but the extraction set the dependence to high.",
+    "evidence": {
+      "doc": "fre",
+      "id_doc": "114234",
+      "quote": "julgamos que não temos uma relação de dependência deste ou de qualquer outro fornecedor"
+    }
+  }
+]
