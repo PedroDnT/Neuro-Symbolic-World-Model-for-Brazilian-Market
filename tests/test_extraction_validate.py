@@ -132,4 +132,7 @@ def test_a_sofr_or_export_advance_line_counts_as_foreign_currency():
     assert is_fx({"indexer": "OTHER", "quote": "Pré Pgto Exportação SOFR+ 3,23% Jul/25 61.752"})
     assert is_fx({"indexer": "FIXED", "quote": "ACC FIXO 6,06% Set/29 3.176"})
     assert not is_fx({"indexer": "FIXED", "quote": "Bonds 2030 9.418"})  # names no currency
+    assert is_fx({"indexer": "FIXED", "quote": "Para capital de giro ACE (desconto de recebível) 45.553"})
+    assert is_fx({"indexer": "FIXED", "quote": "Finame Dólar 89.659 94.313"})
+    assert not is_fx({"indexer": "OTHER", "quote": "Capital de giro Euribor + 1% 10.000"})  # a rate, not a currency
     assert not is_fx({"indexer": "OTHER", "quote": "Debêntures BRL CDI/IPCA 15,4% 9.859.547 accrued"})

@@ -75,3 +75,16 @@ def test_a_placeholder_comparative_leaves_the_trailing_expense_empty():
     ]
     wide = fetch_cvm.build_flows([pd.DataFrame(dfp)], [pd.DataFrame(itr)], set())
     assert pd.isna(wide.loc[(20125, pd.Timestamp("2014-09-30")), "finexp_ttm"])
+
+
+def test_the_foreign_currency_split_keeps_only_its_own_label():
+    def account(code: str, label: str, value: str) -> dict:
+        return {**row("2024-12-31", 1, "ÚLTIMO", "2024-12-31", "MIL", value), "CD_CONTA": code, "DS_CONTA": label}
+
+    frame = pd.DataFrame([
+        account("2.01.04.01.02", "Em Moeda Estrangeira", "500"),
+        account("2.02.01.01.02", "Debêntures", "900"),  # another label on the same code: not kept
+    ])
+    cleaned = fetch_cvm._clean(frame, fetch_cvm.BALANCE)
+    assert list(cleaned["column"]) == ["fx_loans_short"]
+    assert cleaned["value"].iloc[0] == 500_000.0

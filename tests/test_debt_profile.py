@@ -55,3 +55,31 @@ def test_lines_that_miss_both_totals_are_not_usable():
     profile = debt_profile(facts, [run(3, "BRL_thousand", 1000.0)], {3: 1_000_000.0}).iloc[0]
     assert profile["status"] == "sum_differs_from_total"
     assert profile["floating_debt_brl"] is None or profile["floating_debt_brl"] != profile["floating_debt_brl"]
+
+
+def test_fx_check_statuses():
+    from src.extraction.aggregate import fx_check
+
+    assert fx_check(95.0, 100.0) == "ok"
+    assert fx_check(42.0, 100.0) == "fx_lines_missing"
+    assert fx_check(1337.0, 100.0) == "fx_above_filed"
+    assert fx_check(500.0, 0.0) == "no_filed_split"  # a filed 0 is not proof of no FX debt
+    assert fx_check(500.0, float("nan")) == "no_filed_split"
+
+
+def test_the_fx_check_counts_swapped_lines_too():
+    facts = [
+        line(4, "USD", 600.0, "Bonds USD 600", hedged=True),
+        line(4, "CDI", 400.0, "NCE CDI 400"),
+    ]
+    profile = debt_profile(facts, [run(4, "BRL_thousand", 1000.0)], {4: 1_000_000.0}, {4: 600_000.0}).iloc[0]
+    assert profile["fx_debt_brl"] == 0  # swapped: no PTAX shock
+    assert profile["fx_lines_brl"] == pytest.approx(600_000.0)
+    assert profile["fx_check"] == "ok"
+
+
+def test_the_fx_check_counts_a_dollar_line_indexed_to_cdi():
+    from src.extraction.aggregate import is_fx, names_currency
+
+    swapped = line(5, "CDI", 99.0, "PPE com swap (b) US$ nov-29 97,00% CDI 99", hedged=True)
+    assert names_currency(swapped) and not is_fx(swapped)  # in the check, but no PTAX shock

@@ -1,0 +1,123 @@
+[
+  {
+    "id": "cpfl-fx-loans-swapped-to-cdi",
+    "ticker": "CPFE3",
+    "cd_cvm": 18660,
+    "task": "debt",
+    "match": {
+      "indexer": [
+        "USD",
+        "EUR",
+        "OTHER_FX"
+      ]
+    },
+    "expect": 3,
+    "set": {
+      "hedged_to_cdi": true
+    },
+    "reason": "The note says that swaps cover the foreign-currency funding, but no debt line states it, so the extraction marked the lines as not swapped.",
+    "evidence": {
+      "doc": "dfp",
+      "id_doc": "145056",
+      "quote": "A exposição relativa à captação de recursos em moeda estrangeira está coberta por operações financeiras de swap."
+    }
+  },
+  {
+    "id": "grendene-no-dependence-on-braskem",
+    "ticker": "GRND3",
+    "cd_cvm": 19615,
+    "task": "suppliers",
+    "match": {
+      "counterparty": [
+        "Braskem S.A"
+      ]
+    },
+    "expect": 1,
+    "set": {
+      "dependence": "low"
+    },
+    "reason": "The quote says that Grendene does not depend on Braskem or on any other supplier, but the extraction set the dependence to high.",
+    "evidence": {
+      "doc": "fre",
+      "id_doc": "114234",
+      "quote": "julgamos que não temos uma relação de dependência deste ou de qualquer outro fornecedor"
+    }
+  },
+  {
+    "id": "sabesp-fx-loans-swapped-to-cdi",
+    "ticker": "SBSP3",
+    "cd_cvm": 14443,
+    "task": "debt",
+    "match": {
+      "indexer": [
+        "OTHER"
+      ],
+      "amount": [
+        1882325.0
+      ]
+    },
+    "expect": 1,
+    "set": {
+      "hedged_to_cdi": true
+    },
+    "reason": "The note says that 13 swaps cover the whole foreign-currency debt (dollar and yen) and convert it to a cost in CDI, but the SOFR line does not state it, so the extraction marked it as not swapped.",
+    "evidence": {
+      "doc": "dfp",
+      "id_doc": "145844",
+      "quote": "haviam 13 operações de swap vigentes, totalizando o valor nocional de US$ 303.977 mil e Iene 36.787.581 mil para proteção da taxa de juros e variação cambial"
+    }
+  },
+  {
+    "id": "braskem-foreign-currency-lines",
+    "ticker": "BRKM5",
+    "cd_cvm": 4820,
+    "task": "debt",
+    "match": {
+      "indexer": [
+        "FIXED",
+        "OTHER"
+      ],
+      "amount": [
+        3614.0,
+        7417.0,
+        9418.0,
+        4758.0,
+        1526.0,
+        6364.0,
+        5472.0,
+        5352.0,
+        384.0
+      ]
+    },
+    "expect": 9,
+    "set": {
+      "indexer": "OTHER_FX"
+    },
+    "reason": "The summary table lists the bonds (8 lines that sum to 43,921) and the 'Outros' line of 384 under 'Moeda estrangeira', but their own quotes name no currency, so the extraction marked them as fixed-rate or other debt in reais.",
+    "evidence": {
+      "doc": "dfp",
+      "id_doc": "145080",
+      "quote": "Moeda estrangeira Bonds Nota 15 (c) 43.921 31.980 Dívidas indexadas à SOFR (i) 1,67 jan/2025 a fev/2031 5.261 5.604 Outros 5,65 jan/2025 a ago/2028 384 58"
+    }
+  },
+  {
+    "id": "energisa-fx-debt-line",
+    "ticker": "ENGI11",
+    "cd_cvm": 15253,
+    "task": "debt",
+    "add": {
+      "indexer": "OTHER_FX",
+      "amount": 6685532.0,
+      "hedged_to_cdi": true,
+      "lender": null,
+      "instrument": "Dívida Moeda Estrangeira",
+      "quote": "Dívida Moeda Estrangeira (6.685.532) (5.570.174) (7.209.096) (8.848.017)"
+    },
+    "reason": "The extraction read only the rate-sensitivity table, which has no line for the foreign-currency debt. The exchange-rate table gives it, and the note says that all of it is hedged, so the line is added as swapped to CDI.",
+    "evidence": {
+      "doc": "dfp",
+      "id_doc": "145509",
+      "quote": "A Companhia e suas controladas possuem proteção contra variação cambial adversa de 100% dos financiamentos atrelados a moedas estrangeiras"
+    }
+  }
+]
