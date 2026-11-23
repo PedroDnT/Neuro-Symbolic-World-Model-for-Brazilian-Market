@@ -1,5 +1,5 @@
 {
-  "graph_id": "d96ad75c-81e9-47f2-85a8-13ec06c5c7e6",
+  "graph_id": "bceae599-feca-4d20-a05d-c3596afa6677",
   "nodes": [
     {
       "id": "macro:SELIC",
@@ -28204,12 +28204,12 @@
       }
     },
     {
-      "id": "dbe45490-6a3e-5a1d-8db0-69f33b97c8c2",
-      "familyId": "dbe45490-6a3e-5a1d-8db0-69f33b97c8c2",
+      "id": "06cd145b-61de-5a77-866a-4b277bb3554f",
+      "familyId": "06cd145b-61de-5a77-866a-4b277bb3554f",
       "source_id": "company:ENGI11",
       "target_id": "macro:SELIC",
       "type": "EXPOSED_TO",
-      "weight": 0.38545251397420566,
+      "weight": 0.500822951966641,
       "properties": {
         "basis": "extracted"
       }
@@ -28688,12 +28688,12 @@
       }
     },
     {
-      "id": "df571ef9-70bf-513d-beb4-5025fa5e6888",
-      "familyId": "df571ef9-70bf-513d-beb4-5025fa5e6888",
+      "id": "167d2c12-b901-5e1e-b6f3-23dca8724764",
+      "familyId": "167d2c12-b901-5e1e-b6f3-23dca8724764",
       "source_id": "company:SBSP3",
       "target_id": "macro:SELIC",
       "type": "EXPOSED_TO",
-      "weight": 0.6506482190827929,
+      "weight": 0.7309577644727202,
       "properties": {
         "basis": "extracted"
       }

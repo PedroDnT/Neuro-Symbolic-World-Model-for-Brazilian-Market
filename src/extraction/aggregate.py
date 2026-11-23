@@ -115,17 +115,23 @@ def source_sections(evidence: dict) -> list[dict]:
 def apply_corrections(facts: list[dict], corrections: list[dict], sections_of=source_sections) -> tuple[list[dict], list[dict]]:
     """Apply reviewed corrections. Return the facts (copies) and 1 record for each changed field.
 
-    A correction must quote its source verbatim, and it must match exactly the number of facts
-    in its "expect" field. Else the run stops: a correction that no longer applies, or applies
-    only in part, is never skipped without notice.
+    A correction must quote its source verbatim. A "set" correction must match exactly the
+    number of facts in its "expect" field. An "add" correction adds a debt line that the
+    extraction missed; the line must pass the same check as an extracted line, and the
+    extraction must not hold it already. Else the run stops: a correction that no longer
+    applies, or applies only in part, is never skipped without notice.
     """
     facts = [dict(fact) for fact in facts]
     applied = []
     for correction in corrections:
         evidence = correction["evidence"]
-        location = validate.find_location(evidence["quote"], sections_of(evidence))
+        sections = sections_of(evidence)
+        location = validate.find_location(evidence["quote"], sections)
         if location is None:
             raise ValueError(f"correction {correction['id']}: the evidence quote is not in {evidence['doc']} {evidence['id_doc']}")
+        if "add" in correction:
+            applied.append(_add_fact(facts, correction, sections, location))
+            continue
         hits = [
             fact for fact in facts
             if fact["cd_cvm"] == correction["cd_cvm"] and fact["task"] == correction["task"]
@@ -149,6 +155,36 @@ def apply_corrections(facts: list[dict], corrections: list[dict], sections_of=so
                     "evidence_quote": evidence["quote"],
                 })
     return facts, applied
+
+
+def _add_fact(facts: list[dict], correction: dict, sections: list[dict], location: str) -> dict:
+    """Append a debt line that the extraction missed. Return its log record."""
+    if correction["task"] != "debt":
+        raise ValueError(f"correction {correction['id']}: only debt lines can be added")
+    kept, dropped = validate.validate_debt({"slices": [dict(correction["add"])]}, sections)
+    if dropped:
+        raise ValueError(f"correction {correction['id']}: the added line fails the check ({dropped[0]['reason']})")
+    line = kept[0]
+    same = [fact for fact in facts if fact["cd_cvm"] == correction["cd_cvm"] and fact["task"] == correction["task"]]
+    if any(validate.normalize(fact["quote"]) == validate.normalize(line["quote"]) for fact in same):
+        raise ValueError(f"correction {correction['id']}: the extraction already holds this line; remove the correction")
+    evidence = correction["evidence"]
+    document = next(
+        (fact["document"] for fact in same if fact.get("document", {}).get("id_doc") == evidence["id_doc"]),
+        {"doc": evidence["doc"], "id_doc": evidence["id_doc"]},
+    )
+    facts.append({
+        "cd_cvm": correction["cd_cvm"], "ticker": correction["ticker"], "task": correction["task"], **line,
+        "document": document, "model": "correction", "corrected_by": correction["id"], "original": None,
+    })
+    return {
+        "id": correction["id"], "cd_cvm": correction["cd_cvm"], "ticker": correction["ticker"],
+        "task": correction["task"], "field": "added", "old": "",
+        "new": f"{line['indexer']} {line['amount']:,.0f} (hedged to CDI: {bool(line.get('hedged_to_cdi'))}) at {line['location']}",
+        "fact_quote": line["quote"][:160], "reason": correction["reason"],
+        "evidence_doc": f"{evidence['doc']} {evidence['id_doc']}", "evidence_location": location,
+        "evidence_quote": evidence["quote"],
+    }
 
 
 def load_facts(write_log: bool = False) -> list[dict]:

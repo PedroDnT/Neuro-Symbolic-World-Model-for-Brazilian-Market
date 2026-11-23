@@ -56,6 +56,50 @@ def test_the_correction_file_is_well_formed():
     entries = json.loads(CORRECTIONS.read_text())
     assert len({entry["id"] for entry in entries}) == len(entries)
     for entry in entries:
-        assert {"id", "ticker", "cd_cvm", "task", "match", "expect", "set", "reason", "evidence"} <= set(entry)
+        assert {"id", "ticker", "cd_cvm", "task", "reason", "evidence"} <= set(entry)
         assert {"doc", "id_doc", "quote"} <= set(entry["evidence"])
-        assert all(isinstance(allowed, list) for allowed in entry["match"].values())
+        if "add" in entry:
+            assert entry["task"] == "debt" and not {"match", "set", "expect"} & set(entry)
+            assert {"indexer", "amount", "hedged_to_cdi", "lender", "instrument", "quote"} <= set(entry["add"])
+        else:
+            assert {"match", "expect", "set"} <= set(entry)
+            assert all(isinstance(allowed, list) for allowed in entry["match"].values())
+
+
+PAGE_196 = [{"location": "page 196", "text": "Consolidado Dívida Moeda Estrangeira (6.685.532) (5.570.174) (7.209.096) (8.848.017) "
+             "A Companhia possui proteção contra variação cambial adversa de 100% dos financiamentos"}]
+
+
+def addition(**line) -> dict:
+    base_line = {
+        "indexer": "OTHER_FX", "amount": 6685532.0, "hedged_to_cdi": True, "lender": None,
+        "instrument": "Dívida Moeda Estrangeira", "quote": "Dívida Moeda Estrangeira (6.685.532) (5.570.174)",
+    }
+    return {
+        "id": "test-add", "ticker": "T1", "cd_cvm": 1, "task": "debt", "add": {**base_line, **line}, "reason": "test",
+        "evidence": {"doc": "dfp", "id_doc": "1", "quote": "proteção contra variação cambial adversa de 100% dos financiamentos"},
+    }
+
+
+def test_an_added_line_passes_the_extraction_check_and_is_recorded():
+    fixed, applied = apply_corrections(facts(), [addition()], sections_of=lambda evidence: PAGE_196)
+    added = fixed[-1]
+    assert len(fixed) == 3 and added["corrected_by"] == "test-add" and added["model"] == "correction"
+    assert added["location"] == "page 196" and added["hedged_to_cdi"] is True
+    assert applied[0]["field"] == "added"
+
+
+def test_an_added_line_with_an_invented_quote_stops_the_run():
+    with pytest.raises(ValueError, match="quote not in source text"):
+        apply_corrections(facts(), [addition(quote="Dívida Moeda Estrangeira (9.999.999) inventada")], sections_of=lambda e: PAGE_196)
+
+
+def test_an_added_line_whose_amount_is_not_in_its_quote_stops_the_run():
+    with pytest.raises(ValueError, match="amount not in quote"):
+        apply_corrections(facts(), [addition(amount=6685.532)], sections_of=lambda evidence: PAGE_196)
+
+
+def test_an_added_line_that_the_extraction_already_holds_stops_the_run():
+    held = facts() + [{"cd_cvm": 1, "task": "debt", "indexer": "USD", "quote": "Dívida Moeda Estrangeira (6.685.532) (5.570.174)"}]
+    with pytest.raises(ValueError, match="already holds this line"):
+        apply_corrections(held, [addition()], sections_of=lambda evidence: PAGE_196)
