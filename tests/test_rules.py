@@ -37,12 +37,12 @@ def test_interest_coverage_with_a_missing_input_does_not_run():
 
 
 def test_interest_coverage_under_shock():
-    # Extra expense: 1000 * 0.5 * 3 / 100 = 15. Coverage: 200 / (100 + 15) = 1.7391.
-    result = rules.interest_coverage_under_shock(200.0, -100.0, 1000.0, 0.5, 3.0, "extracted")
+    # Extra expense: floating debt 500 * 3 / 100 = 15. Coverage: 200 / (100 + 15) = 1.7391.
+    result = rules.interest_coverage_under_shock(200.0, -100.0, 500.0, 3.0, "extracted")
     assert result.value == pytest.approx(200 / 115)
     assert result.breach is False
     # 160 / 115 = 1.3913, below 1.5.
-    assert rules.interest_coverage_under_shock(160.0, -100.0, 1000.0, 0.5, 3.0, "extracted").breach is True
+    assert rules.interest_coverage_under_shock(160.0, -100.0, 500.0, 3.0, "extracted").breach is True
 
 
 def test_equity_loss_under_shock_uses_filed_equity():
@@ -67,7 +67,7 @@ def test_leverage_does_not_pass_negative_liabilities():
 def test_coverage_rules_do_not_run_on_a_zero_or_positive_expense():
     assert rules.interest_coverage(150.0, 0.0).breach is None
     assert rules.interest_coverage(150.0, 30.0).breach is None
-    assert rules.interest_coverage_under_shock(200.0, 0.0, 1000.0, 0.5, 3.0, "extracted").breach is None
+    assert rules.interest_coverage_under_shock(200.0, 0.0, 500.0, 3.0, "extracted").breach is None
 
 
 def test_rule_line_shows_the_numbers():

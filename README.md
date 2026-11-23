@@ -37,12 +37,17 @@ The engine has 2 parts that run side by side.
 **Hybrid engine (main ranking).**
 
 1. Base path: the "mean change" forecast of each company plus a small seasonal correction (a pooled ridge regression on last quarter's surprise and the same quarter last year). `src/model/ridge.py`.
-2. Shock channel: stated accounting rules on the debt of each company (`src/simulator/transmission.py`):
+2. Shock channel: stated accounting rules on the debt of each company (`src/simulator/transmission.py`). Each channel uses the amount in reais of its lines in the debt note, not a share of the filed debt:
    - SELIC: floating-rate debt pays more interest, in cash.
    - IPCA: IPCA-linked debt accrues more.
    - PTAX: foreign-currency debt that is not swapped to CDI is revalued.
    - Each loss is after a 34 % tax rate. Each rule keeps the balance sheet balanced.
-3. The debt shares come from the notes to the 2024 statements, read by an LLM with a verbatim quote for each line (`src/extraction/`). A quote must be in the source text. An amount must be a number of its own quote, or the sum of 2 of them (current plus non-current). A fixed-rate or SOFR line counts as foreign currency when its quote names a currency code (USD, EUR and similar), SOFR, LIBOR, ACC or "moeda estrangeira". Without a usable debt profile, the floating share is a regression estimate with the label "estimate", and the IPCA and foreign-currency channels give 0. Without an estimate either, the SELIC effect stays empty and the company gets no rank. A company whose filed debt accounts are 0 while its notes show debt also gets no rank: its gross debt is unknown.
+3. The debt lines come from the notes to the 2024 statements, read by an LLM with a verbatim quote for each line (`src/extraction/`).
+   - A quote must be in the source text. An amount must be a number of its own quote, or the sum of 2 of them (current plus non-current).
+   - A fixed-rate or SOFR line counts as foreign currency when its quote names a currency code (USD, EUR and similar), SOFR, LIBOR, ACC or "moeda estrangeira".
+   - The unit of a table is the stated thousand or million. Else it is the factor (x1, x1,000 or x1,000,000) that puts the line sum closest to the filed debt, accepted only between 0.5 and 2 times the filed debt. The model's own "BRL" label was wrong for 3 tables in thousands.
+   - A profile is usable when its line sum is within 20 % of the total that the note states, or of the filed debt, or when the note states no total.
+   - Without a usable debt profile, the floating debt is the filed debt times a regression estimate of the floating share (label "estimate"), and the IPCA and foreign-currency channels give 0. Without an estimate either, the SELIC effect stays empty and the company gets no rank.
 4. Contagion flag: a customer whose supplier (high dependence, from the 2021 reference form) breaches interest coverage under the shock.
 
 **Neural engine (comparison).** The graph recurrent model of the original work order (`src/model/`): GATv2 attention over sector edges, a GRU state, a Gaussian latent, and an accounting projection layer. It sees the macro inputs, so the shock moves its forecast.
@@ -74,12 +79,15 @@ The engine has 2 parts that run side by side.
 `python -m src.simulator.stress_test --selic 3.0 --ptax-pct 15` writes `results/stress_selic+3_ipca+0_ptax+15.csv`.
 
 - 4 companies have filed equity that is not positive (Braskem, Gol, Oi, Recrusul). They rank first, with a flag.
-- The largest hybrid losses come from foreign-currency debt not swapped to CDI: Klabin -39 % of filed equity (84 % of its debt), Suzano -25 % (80 %), JBS -21 % (90 %), Petrobras -8 %. The transmission ignores export revenue in USD, so it overstates the loss of an exporter.
-- 17 companies have no hybrid rank, because an input of their shock effect is unknown, not 0:
-  - 16 have debt but no usable debt profile and no regression estimate (for example Minerva, Magazine Luiza, PRIO).
-  - Allos has a debt profile, but files its loans outside accounts 2.01.04 and 2.02.01, so its gross debt is unknown.
-- 36 companies have interest coverage below 1.5 under the shock. 6 customers get a contagion flag from a supplier with high dependence (for example Ultrapar from Braskem and Petrobras).
-- Rank correlation between the 2 engines: 0.44, over the 79 companies with a result in both.
+- Minerva ranks next (rank 5). Its filed equity is R$ 87 mn against R$ 14.7 bn of unswapped dollar debt in its note, so the shock takes about 22 times its equity (-2,192 % of filed equity).
+- The next largest hybrid losses come from foreign-currency debt not swapped to CDI: Klabin -40 % of filed equity (84 % of its note debt), Suzano -26 % (80 %), JBS -21 % (90 %), Mahle Metal Leve -12 % (92 %), Iochpe-Maxion -8 % (57 %), BRF -8 % (60 %) and Embraer -7 % (99 %). The transmission ignores export revenue in USD, so it overstates the loss of an exporter.
+- Petrobras falls to rank 22 (-3 %): its note holds R$ 143 bn of loans, and the other R$ 230 bn of its filed debt are leases, which get no shock (see Limits).
+- 7 companies have no hybrid rank, because an input of their shock effect is unknown, not 0:
+  - Azevedo & Travassos, Magazine Luiza, PRIO and Vulcabras: the text layer of the filing has no debt table.
+  - Neoenergia and Tupy: the extracted lines miss part of the debt (the line sum is 76 % and 77 % of the stated total).
+  - Allos: its filed debt accounts are 0 and its note states no unit, so its debt in reais is unknown.
+- 43 companies have interest coverage below 1.5 under the shock. 6 customers get a contagion flag from a supplier with high dependence (for example Ultrapar from Braskem and Petrobras). 5 of the 6 rest on a stated dependence; the Grendene flag comes from the known misread below.
+- Rank correlation between the 2 engines: 0.48, over the 89 companies with a result in both.
 
 ### Rules on known failures
 
@@ -93,8 +101,9 @@ The rules run on the filed history of each company (`python -m src.knowledge.rul
 
 ### Extraction
 
-- 202 runs (100 companies x 2 tasks, plus 1 company that left the universe): 194 ok, 8 with no matching section. Cost: US$ 20.72 (cap US$ 25).
-- Debt profiles for 75 of 100 companies. The others use a regression estimate (7) or nothing (18), with the label in each output.
+- 202 runs (100 companies x 2 tasks, plus 1 company that left the universe): 194 ok, 8 with no matching section. Cost: US$ 21.86 (cap US$ 25).
+- Debt profiles for 83 of 100 companies. The others use a regression estimate (8) or nothing (9), with the label in each output. Direcional and Taurus pass the total check through their filed debt: the model read a wrong total for them (a cash-flow table and the 2023 column). For Gol no unit fits its filed debt, so Gol has no usable profile.
+- 12 debt runs ran again after the amount check moved into the extraction step, so the model got the reason for each rejected line (cost US$ 1.14). 10 of the 12 now have a usable profile: 8 from the rerun, plus Direcional and Taurus through the filed-debt check.
 - An amount must match a number of its quote exactly, or the sum of 2 of them. An earlier tolerance of 0.5 accepted some wrong-scale amounts by chance; the exact check rejects them.
 - 39 supplier links between universe companies. Each quote is also in the version of the form received by 2021-12-31, so the typed neural variant may use them.
 - Known error: the model read 1 dependence level wrong (Grendene's quote says it does not depend on Braskem, but the fact says "high").
@@ -103,6 +112,10 @@ The rules run on the filed history of each company (`python -m src.knowledge.rul
 
 - The hybrid shock effect is an accounting pass-through with stated assumptions: no change in revenue or operating costs, debt held constant, 34 % tax. It is not learned from data.
 - Without a usable debt profile, the IPCA and foreign-currency channels give 0. This understates the loss of a company with foreign-currency debt that the extraction did not read.
+- The extraction reads only the text layer of a filing. 8 debt runs found no debt table in the text. 5 of them are companies with filed debt: Azevedo & Travassos, Magazine Luiza, PRIO (notes mostly images), Vulcabras and Positivo (notes text is unreadable glyphs). Positivo keeps a rank through the floating-share estimate, but its IPCA and foreign-currency channels give 0.
+- The shock uses the debt-note amounts, so leases outside the note get no shock. For 9 companies the gap between the note and the filed debt equals their filed lease subaccounts (2.01.04.03 + 2.02.01.03) exactly: Petrobras R$ 230 bn, Vale R$ 4.4 bn, Cogna R$ 2.9 bn, Panvel, Tegma, Alupar, Mahle Metal Leve, Grendene and Unipar. For Yduqs it is close (a gap of R$ 1.63 bn against R$ 1.65 bn of leases). Leases in reais at a fixed rate are not exposed, but leases in dollars also revalue with PTAX, so the PTAX loss of a company with dollar leases is too low.
+- For 3 companies the note lines miss debt that is not leases, so their shock is too low. Romi's lines cover 54 % of it. Vivo's leases are R$ 15.2 bn of a R$ 17.2 bn gap, so its lines cover 65 %. EZTC's only line is TR-indexed, and its CDI debentures (about R$ 0.3 bn) are missing, so its SELIC effect is 0.
+- Known classification errors: CPFL's foreign-currency loans are swapped to CDI (its note says so in a footnote, not on each line), but they count as not swapped, so CPFL gets a false PTAX loss (rank 18 instead of about rank 40 to 50). Minerva's floating debt counts its swapped lines before a R$ 7.9 bn swap offset in its note, so its SELIC loss is up to R$ 0.16 bn too high; its rank does not change.
 - A debt line counts as foreign currency only when its type or its quote says so. For example, Braskem's bond lines name no currency, so its foreign-currency share (0.30) is too low. Braskem ranks first anyway, because its filed equity is not positive.
 - The neural shock response is an extrapolation from 45 quarters of macro data.
 - The universe holds survivors: companies with all 57 quarters. Statements are the latest filed version, not point-in-time.
