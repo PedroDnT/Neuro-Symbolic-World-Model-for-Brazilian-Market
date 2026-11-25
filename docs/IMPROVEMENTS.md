@@ -42,6 +42,15 @@ Sharpened after RE1 and after its check, before any step-3 or step-4 result exis
 - The model has firm fixed effects, with an expanding window up to q-1. Winsor limits come from the training quarters only.
 - Standard errors are clustered by quarter, with a firm bootstrap as a check.
 
+**Step 3 method, fixed before the first run** (`src/evaluation/event_test.py`)
+- For each event quarter q, the training rows are all panel rows before q that meet the firm rule. Training variables are winsorized at their 1st and 99th percentiles in the training rows.
+- (a) Shipped rule, as above, with the sign of a loss: -0.66 × (debt_short_lag + debt_long_lag) × s(q) / equity_lag.
+- (b) Pooled pass-through: the slope θ of fin_result_q / equity_lag on x = -(fx_loans_short_lag + fx_loans_long_lag) × s / equity_lag, with quarter fixed effects (both demeaned by quarter), by least squares on the training rows. Prediction: θ × x(q). A firm with a 0 split gets 0.
+- (c) Signed predictor: (b) plus β_i × s(q). β_i is the slope through the origin of (oci_translation_q + oci_hedge_q) / equity_lag on s over the firm's training quarters. A firm with fewer than 8 training quarters gets β_i = 0.
+- Sector median: for each sector, the median of target / s over the training quarters with |s| > 10 % (from 2011 on, so 2015 Q1 has 4 earlier events), times s(q). A sector without such rows gets the median of all firms.
+- Firm 4-quarter mean (reported only): the mean target of the firm's last 4 training quarters.
+- Score: Spearman correlation with the target, on the firms that have a target in q. Ties get average ranks.
+
 If step 3 fails, the README says that the firm-level data add nothing beyond the sector average, and the product is the audited exposure data set.
 
 ## Re-evaluations
