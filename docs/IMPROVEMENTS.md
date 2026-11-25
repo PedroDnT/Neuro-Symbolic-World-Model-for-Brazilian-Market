@@ -10,7 +10,7 @@ Background: `docs/network_panel.md`.
 | 2 | Build the filed-outcome panel (financial result, translation and hedge lines, FX loans, equity) for all non-financial filers | done, fixed after RE1 and its check | `src/data_ingestion/filed_panel.py` writes `data/filed_panel.csv`: 27,820 company-quarters, 945 non-financial companies (628 consolidated, 317 that file only individual statements), 2011 Q1 to 2024 Q4. Fiscal Q2 and Q3 use the filed 3-month values; fiscal Q1 is the year to date; fiscal Q4 is the annual value minus 9 months. April-to-March companies are included. The financial result matches the raw filings in 107 rows checked by hand, and an independent rebuild matches all 27,822 rows. Translation and hedge are unknown (empty) for 2,769 rows whose filing shows only a nonzero total. `restated_q` marks 1,412 rows where the year-to-date difference disagrees with the filed 3-month value; `suspect_q` marks 58 rows. The step 3 rule leaves 325 to 470 companies in each event quarter. 34 tests in `tests/test_filed_panel.py`. |
 | RE1 | Re-evaluation of steps 1-2 | done | Step 1: pass with fixes. Step 2: fail (1 blocker), then fixed. Verdict and changes below. |
 | 3 | Signed first-hop event test (kill rule below, fixed before the run) | **failed** | `python -m src.evaluation.event_test` (`data/event_test.csv`). The signed predictor beats both baselines in 2 of 9 quarters; mean gain -0.27, t = -3.0. The pass rule needs 7, 0.15 and 2. Result and a design problem of the target: see "Step 3 result" below. |
-| 4 | Pass-through regression with firm fixed effects (kill rule below) | pending | |
+| 4 | Pass-through regression with firm fixed effects (kill rule below) | **survived** | `python -m src.evaluation.pass_through` (`data/pass_through.csv`). θ = 0.665, clustered 95 % interval 0.59 to 0.74, firm bootstrap 0.51 to 0.80 (327 firms, 7,002 rows). Out-of-sample skill 22.4 % against the firm mean; 12 wins of 12 test quarters. See "Step 4 result" below. |
 | RE2 | Re-evaluation of steps 3-4 | pending | |
 | 5 | If step 3 passes: the stress engine uses the fitted signed layer; score the 2025 filings frozen | pending | |
 | 6 | Contagion capacity bound for 4 historical shock sizes | pending | |
@@ -171,4 +171,25 @@ Pre-registered rule: **failed** (2 wins of 9, mean gain -0.27, t = -3.0).
 - The shipped rule scores +0.54 to +0.70 when the dollar rises and -0.43 to -0.58 when it falls. Its sign follows the shock, so it ranks debt level, not the FX response.
 
 So this test cannot tell whether the signed layer captures the FX response; it mostly measures leverage. The result stands as pre-registered: the signed predictor did not beat the baselines on this target. The author chose the level target (a recorded decision before RE1), and RE1 proposed the same target. Whether to pre-register a new test on the response (the target minus the firm's own normal level) is the owner's decision; nothing about it was run.
+
+## Step 4 result, 2026-11-25
+
+Pre-registered kill rule: **not killed** (skill 22.4 % ≥ 10 %; 12 of 12 wins ≥ 9; the interval contains neither 0 nor 1).
+
+| Quarter | Firms | s | θ (fit before q) | Skill |
+|---|---|---|---|---|
+| 2022 Q1 | 115 | -0.151 | 0.625 | 0.238 |
+| 2022 Q2 | 119 | +0.106 | 0.627 | 0.467 |
+| 2022 Q3 | 121 | +0.032 | 0.629 | 0.038 |
+| 2022 Q4 | 122 | -0.035 | 0.628 | 0.020 |
+| 2023 Q1 | 125 | -0.026 | 0.630 | 0.086 |
+| 2023 Q2 | 127 | -0.051 | 0.637 | 0.261 |
+| 2023 Q3 | 131 | +0.039 | 0.637 | 0.229 |
+| 2023 Q4 | 129 | -0.033 | 0.645 | 0.014 |
+| 2024 Q1 | 132 | +0.032 | 0.647 | 0.065 |
+| 2024 Q2 | 128 | +0.113 | 0.640 | 0.260 |
+| 2024 Q3 | 127 | -0.020 | 0.645 | 0.164 |
+| 2024 Q4 | 123 | +0.137 | 0.648 | 0.438 |
+
+Reading: for a firm with a filed foreign-currency split, about 2/3 of the mark-to-market effect of the dollar on its FX loans shows in its financial result in the same quarter (the rest is hedged, capitalized or in other lines). The gain is largest in quarters with a large move. The estimate is stable from fit to fit (0.625 to 0.648). It covers only firms that file the split (about 120 to 130 per quarter); for the others, a 0 in the split does not mean no FX debt.
 
