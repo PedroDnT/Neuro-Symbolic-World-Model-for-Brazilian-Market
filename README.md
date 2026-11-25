@@ -133,7 +133,7 @@ The owner asked how to make the engine a real network model, as first planned. A
   - The result depends on winsorizing. Without it, θ is 0.89 and its interval contains 1, and the skill on unclipped outcomes is 8.5 %.
   - 5 firms give all of the gain.
   - θ is 0.58 in quarters with a large dollar move.
-- **Not yet tested here:** the panel's bound on firm-to-firm contagion (the worst-case second-round loss is about 6 to 7 % of the direct losses). Step 6 rebuilds it.
+- **Computed here, step 6 (a bound):** in the worst case, firm-to-firm links add at most about 15 % to the direct FX losses of a dollar shock (13.6 % to 14.7 % for the 4 largest rises since 2015). Supplier links give about 78 % of it. The worst case assumes that all of a supplier's receivables are owed by 1 linked customer, so the real figure is smaller. (The panel's figure was 6 to 7 %, with other assumptions.)
 - **What this means for the ranking above:** treat it as a leverage-based screen, not as a measured FX response. The audited debt-exposure data and the step 4 pass-through for firms that file the split are the parts with evidence.
 
 ## Limits

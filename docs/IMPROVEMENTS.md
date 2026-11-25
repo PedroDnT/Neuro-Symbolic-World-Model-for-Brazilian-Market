@@ -13,7 +13,7 @@ Background: `docs/network_panel.md`.
 | 4 | Pass-through regression with firm fixed effects (kill rule below) | **survived** | `python -m src.evaluation.pass_through` (`data/pass_through.csv`). θ = 0.665, clustered 95 % interval 0.59 to 0.74, firm bootstrap 0.51 to 0.80 (327 firms, 7,002 rows). Out-of-sample skill 22.4 % against the firm mean; 12 wins of 12 test quarters. See "Step 4 result" below. |
 | RE2 | Re-evaluation of steps 3-4 | done | Step 3: final, failed (3 of 3 reviewers). Step 4: survived under the code's reading of the rule (2 of 2 reviewers that checked it), but fragile: see below. |
 | 5 | If step 3 passes: the stress engine uses the fitted signed layer; score the 2025 filings frozen | **cancelled** (step 3 failed) | The README states the result with the wording that RE2 corrected. |
-| 6 | Contagion capacity bound for 4 historical shock sizes | pending | |
+| 6 | Contagion capacity bound for 4 historical shock sizes | done | `python -m src.evaluation.contagion_bound` (`data/contagion_bound.csv`). Worst-case second-round loss: 13.6 % to 14.7 % of the direct loss, for all 4 shock sizes and both θ. Supplier links give about 78 % of it. See "Step 6 result" below. |
 | RE3 | Re-evaluation of steps 5-6 | pending | |
 
 ## Kill rules, fixed before the runs
@@ -300,4 +300,25 @@ Reading (corrected after RE2): for a firm with a filed foreign-currency split, t
 | README is stale and step 1 numbers are contradicted | README section rewritten with the repository's own results. |
 | Code notes (target not winsorized in the sector and firm means; no end date for event quarters; constant predictor scores 0) | No change: the verdict is the same either way (reviewer 1 checked it), and the code stays as it was run. |
 | Step 3b (response target) proposed by reviewer 3 | Not run. Exploratory checks by reviewer 1 give 6 of 9 wins and a mean gain of about 0, so it would very likely fail, and it would not be blind. The owner decides. |
+
+## Step 6 result, 2026-11-25
+
+A bound, not a test. 100 companies, 43 with FX debt, 67 exposures (39 supplier, 18 related party in both directions, 10 ownership).
+
+| Shock (quarter) | s | θ | Direct loss (R$ bn) | Second round (R$ bn) | Second / direct | Ownership | Supplier | Related party |
+|---|---|---|---|---|---|---|---|---|
+| 2020 Q1 | +29.0 % | 0.665 | 97.1 | 14.3 | 14.7 % | 1.6 | 11.2 | 1.8 |
+| 2020 Q1 | +29.0 % | 1.0 | 144.8 | 19.7 | 13.6 % | 2.5 | 15.1 | 2.7 |
+| 2015 Q3 | +28.1 % | 0.665 | 94.0 | 13.8 | 14.7 % | 1.6 | 10.8 | 1.7 |
+| 2015 Q3 | +28.1 % | 1.0 | 140.4 | 19.4 | 13.8 % | 2.4 | 15.0 | 2.6 |
+| 2015 Q1 | +20.8 % | 0.665 | 69.6 | 10.3 | 14.7 % | 1.2 | 8.0 | 1.3 |
+| 2015 Q1 | +20.8 % | 1.0 | 104.7 | 15.4 | 14.7 % | 1.8 | 12.0 | 1.9 |
+| 2018 Q2 | +16.0 % | 0.665 | 53.7 | 7.9 | 14.7 % | 0.9 | 6.2 | 1.0 |
+| 2018 Q2 | +16.0 % | 1.0 | 80.7 | 11.9 | 14.7 % | 1.4 | 9.3 | 1.5 |
+
+Reading:
+- The ratio hardly changes with the shock size, because almost no company reaches its equity cap. Distress is then linear in the loss, so the second round scales with the direct loss.
+- The bound depends on the worst-case assumption that all of a supplier's receivables are owed by its most distressed linked customer. The largest added losses are Copel (R$ 4.2 bn, via Klabin and Sanepar), Petrobras (R$ 3.7 bn, via Braskem, Cemig and Gerdau) and JSL (R$ 1.4 bn, via Klabin and Suzano). Real receivables are spread over many customers, so the real second round is smaller.
+- The panel's figure (6 to 7 %) used different assumptions. This bound, about 15 %, replaces it as the number that this repository reproduces.
+- The direct loss covers only FX debt, so the bound applies to a dollar shock. Minerva has equity of R$ 87 million at 2024 Q4, so its direct loss reaches its equity cap.
 
