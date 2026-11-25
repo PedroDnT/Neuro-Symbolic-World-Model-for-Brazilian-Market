@@ -1,6 +1,6 @@
 # Brazilian Macro-Corporate Contagion Engine
 
-A stress-test engine for 100 non-financial companies listed on B3. You give a macro shock (SELIC, IPCA, USD/BRL). The engine returns a ranked table of companies by the equity loss that the shock causes, and an audit trail for each company that says where each number comes from.
+A stress-test engine for 100 non-financial companies listed on B3. You give a macro shock (SELIC, IPCA, USD/BRL). The engine returns a ranked table of companies by the equity loss that the shock causes, and an audit trail for each company that says where each number comes from. Warning: in tests against the effects that companies filed in past dollar shocks, a debt-based proxy of this ranking followed leverage, not the FX response. The engine's own ranking was not scored (see "What the network panel and the tests found").
 
 Each predicted balance sheet satisfies Assets = Current Liabilities + Non-Current Liabilities + Equity (residual at most 1e-5 in scaled units).
 
@@ -120,6 +120,22 @@ The rules run on the filed history of each company (`python -m src.knowledge.rul
   - SELIC loss too low, PTAX correct: Sabesp (0.56) swaps all its foreign-currency debt, and about R$ 1.5 bn of it (the yen loans) is not identified in its lines, so it is not in its floating debt.
   - No error in the shock: Eletrobras (now Axia Energia, 0) swaps its foreign-currency debt to CDI, and that debt is already in its CDI line. Braskem (1.33) includes the R$ 15.5 bn financing of Braskem Idesa, which the filing reports outside accounts 2.01.04 + 2.02.01; without it the ratio is 1.01.
   - JBS has 13 times more foreign-currency lines than its filed split, which looks incomplete.
+
+## What the network panel and the tests found
+
+The owner asked how to make the engine a real network model, as first planned. A panel of 3 independent designs and 3 judges answered it (`docs/network_panel.md`). Steps 2 to 6 of `docs/IMPROVEMENTS.md` then tested its main claims in this repository. The rules were fixed before each run, and fresh reviewers checked each pair of steps. Numbers marked *exploratory* come from reviewer checks, not from a registered rule.
+
+- **Step 3, failed.** The test covered the 9 quarters since 2015 with a dollar move above 10 %. A signed layer (the pass-through of FX loans plus each firm's own translation and hedge slopes) did not rank firms better than a debt-based proxy of the shipped rule, or the sector median. The target was each firm's filed effect: financial result + translation + hedge, over equity. The signed layer won 2 of 9 quarters, with a mean gain of -0.27.
+  - The target is mostly each firm's normal interest cost. The firm's own recent mean predicts it best in 8 of 9 quarters (rank correlation 0.34 to 0.82).
+  - The debt proxy (total debt × shock × 0.66) ranks leverage, not the FX response. It scores +0.54 to +0.70 when the dollar rises and -0.43 to -0.58 when it falls. The engine's own ranking was not scored. *Exploratory:* the engine's loss has a correlation of 0.71 with gross debt over equity.
+  - For firms with a fitted slope (94 to 176 per quarter), the slopes predict the FX part of comprehensive income (0.56 to 0.79). That part is too small to change the ranking of the total.
+- **Step 4, survived under 1 reading of its rule, and fragile.** The test covered about 125 firms per quarter that file a foreign-currency split. The pass-through of the dollar on their FX loans to their financial result is 0.67 (95 % interval 0.59 to 0.74). The out-of-sample skill over the firm mean is 22 % (2022 to 2024), with 12 wins of 12 quarters.
+  - The rule does not say whether the final interval is winsorized. Without winsorizing, θ is 0.89 and its interval contains 1, so the rule kills the step.
+  - *Exploratory:* skill on unclipped outcomes is 8.5 %; without the 5 firms that give the gain, it is -0.7 %; θ is 0.58 in quarters with a large dollar move.
+- **Step 6, a worst-case bound on firm-to-firm contagion.** In a dollar shock, the known links (supplier, related party, ownership) add 25 % to 53 % to the direct losses in the worst case. The figure is about 14 % if companies that were already insolvent before the shock pass on nothing.
+  - 2 or 3 links decide the number. Petrobras's receivables are owed by Braskem, whose equity is negative. Copel is linked to Klabin by a weak supplier link.
+  - The worst case assumes that all of a company's receivables are owed by 1 linked counterparty, so the real figure is smaller. A first run reported "at most about 15 %" because of a bug; RE3 found and fixed it.
+- **What this means for the ranking above.** Treat it as a leverage screen, not as a measured FX response. The audited debt-exposure data is the part with the most evidence. The step 4 pass-through and the step 6 bound are usable with the limits above.
 
 ## Limits
 

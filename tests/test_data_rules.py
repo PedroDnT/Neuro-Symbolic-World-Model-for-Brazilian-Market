@@ -57,6 +57,19 @@ def test_a_unit_fix_can_prove_another_unit_fix():
     assert {quarter for _, quarter, _, _ in fixes} == {pd.Timestamp("2020-12-31"), pd.Timestamp("2021-06-30")}
 
 
+def test_a_later_comparative_proves_a_unit_fix_that_the_own_comparative_cannot():
+    rows = [
+        row("2018-12-31", 1, "ÚLTIMO", "2018-12-31", "UNIDADE", "1700000"),  # in thousands, unproven
+        row("2019-12-31", 1, "ÚLTIMO", "2019-12-31", "UNIDADE", "1800000"),
+        row("2019-12-31", 1, "PENÚLTIMO", "2018-12-31", "UNIDADE", "1700000"),  # same error: ratio 1
+        row("2020-03-31", 1, "ÚLTIMO", "2020-03-31", "MIL", "1850000"),
+        row("2020-03-31", 1, "PENÚLTIMO", "2019-12-31", "MIL", "1800000"),  # proves 2019-12-31
+    ]
+    fixes = fetch_cvm.unit_fixes([pd.DataFrame(rows)])
+    assert (20125, pd.Timestamp("2019-12-31"), "itr", 1) in fixes
+    assert (20125, pd.Timestamp("2018-12-31"), "itr", 1) in fixes  # proven after the first fix
+
+
 def flow(quarter: str, order: str, start: str, end: str, value: str, doc: str = "itr") -> dict:
     return {
         "CNPJ_CIA": "1", "DT_REFER": quarter, "VERSAO": "1", "DENOM_CIA": "X", "CD_CVM": "20125",

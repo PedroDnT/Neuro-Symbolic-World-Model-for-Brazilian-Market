@@ -45,6 +45,7 @@ BALANCE = {
     "1": ("total_assets", "ativo total"),
     "1.01": ("current_assets", "ativo circulante"),
     "1.01.01": ("cash", "caixa e equivalentes de caixa"),
+    "1.01.02": ("financial_investments", "aplicacoes financeiras"),
     "2.01": ("current_liabilities", "passivo circulante"),
     "2.01.04": ("debt_short", "emprestimos e financiamentos"),
     # Optional split of the standard chart; many companies leave it at 0 (see aggregate.fx_check).
@@ -75,7 +76,9 @@ def normalize_text(text: str) -> str:
     return " ".join(plain.lower().split())
 
 
-def _read(doc: str, year: int, statement: str, scope: str, codes: set[str]) -> pd.DataFrame:
+def _read(doc: str, year: int, statement: str, scope: str, codes) -> pd.DataFrame:
+    """Rows of 1 statement file. `codes` is a set of account codes, or a function that takes
+    the account-code column and returns a boolean mask."""
     archive_name = f"{doc}_cia_aberta_{year}.zip"
     path = download(f"{CVM_BASE}/DOC/{doc.upper()}/DADOS/{archive_name}", RAW_DIR / "cvm" / archive_name, MODULE)
     parts = []
@@ -85,7 +88,8 @@ def _read(doc: str, year: int, statement: str, scope: str, codes: set[str]) -> p
             handle, sep=";", encoding="latin1", dtype=str, chunksize=250_000, usecols=lambda name: name in NEEDED
         )
         for chunk in reader:
-            parts.append(chunk[chunk["CD_CONTA"].isin(codes)])
+            mask = codes(chunk["CD_CONTA"]) if callable(codes) else chunk["CD_CONTA"].isin(codes)
+            parts.append(chunk[mask])
     frame = pd.concat(parts, ignore_index=True)
     frame["doc"] = doc
     return frame
@@ -113,11 +117,15 @@ def _clean(frame: pd.DataFrame, accounts: dict, unit_fixes: set | None = None) -
 
 
 def unit_fixes(balance_frames: list[pd.DataFrame]) -> set:
-    """Filings declared in units whose own comparative proves that they are in thousands.
+    """Filings declared in units whose numbers are in thousands, each with proof from a comparative.
 
-    The comparative column (PENÚLTIMO) of total assets must be 1/1000 of the total assets
-    that the chosen filing of the comparative date reports. A fix can correct the reference
-    of another filing, so the check runs again until no new fix appears.
+    Backward proof: the filing's own comparative (PENÚLTIMO) of total assets is 1/1000 of the
+    total assets that the chosen filing of the comparative date reports.
+    Forward proof: a filing that reports the date as its comparative gives 1000 times the total
+    assets of the chosen filing of that date, and that filing is declared in units. (The filing's
+    own comparative cannot prove it when the filing before it has the same error.)
+    A fix can correct the reference of another filing, so the check runs again until no new fix
+    appears.
     """
     raw = pd.concat(balance_frames, ignore_index=True)
     raw = raw[raw["CD_CONTA"] == "1"]
@@ -128,10 +136,21 @@ def unit_fixes(balance_frames: list[pd.DataFrame]) -> set:
     fixes: set = set()
     while True:
         fixed = _clean(raw, BALANCE, fixes)
-        stored = _last_version(fixed[fixed["ORDEM_EXERC"] == "ÚLTIMO"]).groupby(KEY)["value"].first()
+        chosen = _last_version(fixed[fixed["ORDEM_EXERC"] == "ÚLTIMO"])
+        stored = chosen.groupby(KEY)["value"].first()
         ratio = comparative["value"].to_numpy() / stored.reindex(dates).to_numpy()
         proven = comparative[(ratio > UNIT_RATIO[0]) & (ratio < UNIT_RATIO[1])]
         found = fixes | set(map(tuple, proven[FILING].drop_duplicates().itertuples(index=False)))
+
+        later = fixed[fixed["ORDEM_EXERC"] == "PENÚLTIMO"]
+        later_dates = pd.MultiIndex.from_arrays([later["cd_cvm"], pd.to_datetime(later["DT_FIM_EXERC"])])
+        filing = chosen.groupby(KEY)[["doc", "versao", "ESCALA_MOEDA"]].first().reindex(later_dates)
+        inverse = stored.reindex(later_dates).to_numpy() / later["value"].to_numpy()
+        hit = (inverse > UNIT_RATIO[0]) & (inverse < UNIT_RATIO[1])
+        hit &= (filing["ESCALA_MOEDA"] == "UNIDADE").to_numpy()
+        targets = filing[hit].reset_index()
+        targets.columns = ["cd_cvm", "quarter", "doc", "versao", "ESCALA_MOEDA"]
+        found |= set(map(tuple, targets[FILING].drop_duplicates().itertuples(index=False)))
         if found == fixes:
             break
         fixes = found
