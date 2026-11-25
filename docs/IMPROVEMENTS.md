@@ -9,7 +9,7 @@ Background: `docs/network_panel.md`.
 | 1 | State the panel verdict in the README and the pages | done | README section "What the network panel found"; `docs/network_panel.md` |
 | 2 | Build the filed-outcome panel (financial result, translation and hedge lines, FX loans, equity) for all non-financial filers | done, fixed after RE1 and its check | `src/data_ingestion/filed_panel.py` writes `data/filed_panel.csv`: 27,820 company-quarters, 945 non-financial companies (628 consolidated, 317 that file only individual statements), 2011 Q1 to 2024 Q4. Fiscal Q2 and Q3 use the filed 3-month values; fiscal Q1 is the year to date; fiscal Q4 is the annual value minus 9 months. April-to-March companies are included. The financial result matches the raw filings in 107 rows checked by hand, and an independent rebuild matches all 27,822 rows. Translation and hedge are unknown (empty) for 2,769 rows whose filing shows only a nonzero total. `restated_q` marks 1,412 rows where the year-to-date difference disagrees with the filed 3-month value; `suspect_q` marks 58 rows. The step 3 rule leaves 325 to 470 companies in each event quarter. 34 tests in `tests/test_filed_panel.py`. |
 | RE1 | Re-evaluation of steps 1-2 | done | Step 1: pass with fixes. Step 2: fail (1 blocker), then fixed. Verdict and changes below. |
-| 3 | Signed first-hop event test (kill rule below, fixed before the run) | pending | |
+| 3 | Signed first-hop event test (kill rule below, fixed before the run) | **failed** | `python -m src.evaluation.event_test` (`data/event_test.csv`). The signed predictor beats both baselines in 2 of 9 quarters; mean gain -0.27, t = -3.0. The pass rule needs 7, 0.15 and 2. Result and a design problem of the target: see "Step 3 result" below. |
 | 4 | Pass-through regression with firm fixed effects (kill rule below) | pending | |
 | RE2 | Re-evaluation of steps 3-4 | pending | |
 | 5 | If step 3 passes: the stress engine uses the fitted signed layer; score the 2025 filings frozen | pending | |
@@ -50,6 +50,14 @@ Sharpened after RE1 and after its check, before any step-3 or step-4 result exis
 - Sector median: for each sector, the median of target / s over the training quarters with |s| > 10 % (from 2011 on, so 2015 Q1 has 4 earlier events), times s(q). A sector without such rows gets the median of all firms.
 - Firm 4-quarter mean (reported only): the mean target of the firm's last 4 training quarters.
 - Score: Spearman correlation with the target, on the firms that have a target in q. Ties get average ranks.
+
+**Step 4 method, fixed before the first run** (`src/evaluation/pass_through.py`)
+- Rows: all panel rows with fin_result_q, `total_assets_lag` > 0, `suspect_q` false, and a nonzero filed split at q-1 (fx_loans_short_lag + fx_loans_long_lag > 0).
+- y = fin_result_q / total_assets_lag; x = -(fx_loans_short_lag + fx_loans_long_lag) × s / total_assets_lag, in every quarter (not only event quarters).
+- θ: least squares of y on x after removing firm and quarter means (two-way fixed effects, by alternating demeaning until the change is below 1e-12).
+- For each test quarter q from 2022 Q1 to 2024 Q4: fit on the rows before q, with y and x winsorized at the 1st and 99th percentiles of those rows; the same limits are applied to the rows of q. Prediction: the firm's training mean of y + θ × (x - the firm's training mean of x). Baseline: the firm's training mean of y. Only firms with at least 4 training quarters are scored.
+- Skill = 1 - (sum of squared errors of the model) / (sum of squared errors of the baseline), over all rows of the 12 test quarters. A quarter is a win when the model's squared error in that quarter is lower.
+- Interval of θ: θ fitted on all rows through 2024 Q4, with a standard error clustered by quarter; 95 % interval = θ ± 1.96 standard errors. A firm bootstrap (200 draws, percentile interval) is reported as a check.
 
 If step 3 fails, the README says that the firm-level data add nothing beyond the sector average, and the product is the audited exposure data set.
 
@@ -139,4 +147,28 @@ If step 3 fails, the README says that the firm-level data add nothing beyond the
 | note | Gross and net of tax hedge lines are mixed; hedge includes interest-rate and commodity hedges | Stated in the module. No change: the effect is a scale of at most 1/0.66 on the hedge part. |
 | note | Listed holding and listed subsidiary both in the panel (Suzano Holding and Suzano); small look-ahead from latest-version stocks; ITRs with a 3-month column only get fiscal Q1; companies that file consolidated statements lose their individual-only quarters | Stated in the module or here. No change. |
 | note | Iochpe 2015 Q3 files its translation under a financial-instrument label | The panel follows the filed label. No change. |
+
+## Step 3 result, 2026-11-25
+
+Pre-registered rule: **failed** (2 wins of 9, mean gain -0.27, t = -3.0).
+
+| Quarter | s | Firms | Shipped | Pass-through | Signed | Sector median | Firm 4-quarter mean |
+|---|---|---|---|---|---|---|---|
+| 2015 Q1 | +0.208 | 331 | 0.671 | 0.151 | 0.257 | 0.426 | 0.794 |
+| 2015 Q3 | +0.281 | 326 | 0.621 | 0.204 | 0.356 | 0.384 | 0.817 |
+| 2018 Q2 | +0.160 | 325 | 0.656 | 0.148 | 0.281 | 0.367 | 0.758 |
+| 2020 Q1 | +0.290 | 357 | 0.543 | 0.064 | 0.243 | 0.337 | 0.565 |
+| 2021 Q2 | -0.122 | 427 | -0.427 | 0.063 | 0.139 | -0.061 | 0.336 |
+| 2022 Q1 | -0.151 | 440 | -0.581 | -0.014 | 0.135 | -0.035 | 0.506 |
+| 2022 Q2 | +0.106 | 436 | 0.700 | 0.079 | 0.202 | 0.290 | 0.607 |
+| 2024 Q2 | +0.113 | 470 | 0.694 | 0.077 | 0.209 | 0.262 | 0.733 |
+| 2024 Q4 | +0.137 | 434 | 0.654 | -0.006 | 0.162 | 0.275 | 0.767 |
+
+(Spearman correlation with the target. Pooled pass-through θ: 0.60 to 0.85.)
+
+**What the result says, and what it does not say.** The target is the level of the effect. That level is mostly each firm's normal interest cost, not its response to the dollar:
+- The firm's own 4-quarter mean, which has no FX information, scores 0.34 to 0.82.
+- The shipped rule scores +0.54 to +0.70 when the dollar rises and -0.43 to -0.58 when it falls. Its sign follows the shock, so it ranks debt level, not the FX response.
+
+So this test cannot tell whether the signed layer captures the FX response; it mostly measures leverage. The result stands as pre-registered: the signed predictor did not beat the baselines on this target. The author chose the level target (a recorded decision before RE1), and RE1 proposed the same target. Whether to pre-register a new test on the response (the target minus the firm's own normal level) is the owner's decision; nothing about it was run.
 
