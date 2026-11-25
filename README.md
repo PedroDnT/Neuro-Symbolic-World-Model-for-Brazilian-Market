@@ -1,6 +1,6 @@
 # Brazilian Macro-Corporate Contagion Engine
 
-A stress-test engine for 100 non-financial companies listed on B3. You give a macro shock (SELIC, IPCA, USD/BRL). The engine returns a ranked table of companies by the equity loss that the shock causes, and an audit trail for each company that says where each number comes from.
+A stress-test engine for 100 non-financial companies listed on B3. You give a macro shock (SELIC, IPCA, USD/BRL). The engine returns a ranked table of companies by the equity loss that the shock causes, and an audit trail for each company that says where each number comes from. Warning: a design panel found that this ranking does not yet agree with the equity effects that companies filed in past shocks (see "What the network panel found").
 
 Each predicted balance sheet satisfies Assets = Current Liabilities + Non-Current Liabilities + Equity (residual at most 1e-5 in scaled units).
 
@@ -125,9 +125,9 @@ The rules run on the filed history of each company (`python -m src.knowledge.rul
 
 The owner asked how to make the engine a real network model, as first planned. A panel of 3 independent designs and 3 judges answered it (`docs/network_panel.md`). Its numbers are provisional until they are rebuilt here with tests (`docs/IMPROVEMENTS.md`).
 
-- **The firm-to-firm network does not matter with this data.** The worst-case second-round loss is about 6 to 7 % of the direct losses, and supplier links add nothing measurable against placebo networks.
-- **The ranking above has no rank information yet.** Debt × shock × 0.66 has a rank correlation of -0.11 to +0.11 with each firm's filed equity effect in 7 past shock years. It ignores the translation of foreign subsidiaries, hedge results and export revenue.
-- **A signed first layer from filed accounts does have information** (rank correlation 0.29 to 0.39 in 4 past shock years), and the pass-through of the dollar to the financial result is clearly identified (0.54, standard error 0.05).
+- **The firm-to-firm network does not matter with this data.** The worst-case second-round loss is about 6 to 7 % of the direct losses, and supplier links add nothing measurable against placebo networks (panel rerun, not yet reproduced here).
+- **The ranking above has no rank information yet.** Debt × shock × 0.66 has a rank correlation of -0.11 to +0.11 with each firm's filed equity effect in 7 past shock years (panel rerun, not yet reproduced here). It ignores the translation of foreign subsidiaries, hedge results and export revenue.
+- **A signed first layer from filed accounts does have information** (rank correlation 0.29 to 0.39 in 4 past shock years), and the estimated pass-through of the dollar to the financial result is 0.54, standard error 0.05 (panel rerun, not yet reproduced here). This estimate is not stable: it is 0.46 in large shocks and 0.76 in calm quarters, and the 95 % interval of its out-of-sample skill on the 100 companies is -12 % to +40 %.
 - **Next:** test whether that signed layer beats the sector average, which is the obvious answer. The rules that would kill it are fixed in `docs/IMPROVEMENTS.md` before the run.
 
 ## Limits
