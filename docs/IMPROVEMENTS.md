@@ -59,6 +59,16 @@ Sharpened after RE1 and after its check, before any step-3 or step-4 result exis
 - Skill = 1 - (sum of squared errors of the model) / (sum of squared errors of the baseline), over all rows of the 12 test quarters. A quarter is a win when the model's squared error in that quarter is lower.
 - Interval of θ: θ fitted on all rows through 2024 Q4, with a standard error clustered by quarter; 95 % interval = θ ± 1.96 standard errors. A firm bootstrap (200 draws, percentile interval) is reported as a check.
 
+**Step 6 method, fixed before the first run** (`src/evaluation/contagion_bound.py`). A bound, not a test: it has no pass rule.
+- Firms: the 100-company universe (all 47 link endpoints are in it). Balance: 2024 Q4 (`data/cvm_quarterly.csv`), plus trade receivables (account 1.01.03) from the same filing.
+- Shocks: the 4 largest dollar rises since 2015, by quarter-end PTAX: +29.0 % (2020 Q1), +28.1 % (2015 Q3), +20.8 % (2015 Q1), +16.0 % (2018 Q2).
+- Direct loss D_i = θ × FX debt_i × s, with θ = 0.665 (step 4) and, as an upper case, θ = 1. FX debt: `fx_debt_brl` of `data/debt_profile.csv` when the status is ok, ok_no_stated_total or ok_filed_total; otherwise the filed split (fx_loans_short + fx_loans_long). A company without either has D = 0.
+- Second round, worst case, iterated to a fixed point. Each company's total loss L_i is capped at its equity.
+  - Ownership: the owner loses (stake / 100) × L of the owned company. This assumes the owner does not consolidate it, so it is an upper bound.
+  - Supplier: the supplier loses its trade receivables × min(1, L_customer / equity_customer) (DebtRank-style distress). The worst case is that all its receivables are from that customer. A supplier with several customers in the graph uses the largest distress, so its loss never exceeds its receivables.
+  - Related party: the same as supplier, in both directions.
+- Result: the second-round loss (sum of L minus sum of D) as a % of the direct loss, for each shock and each θ, with the share of each link type.
+
 If step 3 fails, the README says that the firm-level data add nothing beyond the sector average, and the product is the audited exposure data set. (Corrected after RE2, because the data contradict this sentence: the README says that the signed layer adds nothing beyond the baselines on the level target.)
 
 ## Re-evaluations
