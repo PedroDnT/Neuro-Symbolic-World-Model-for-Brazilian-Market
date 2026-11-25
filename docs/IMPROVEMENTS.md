@@ -1,6 +1,6 @@
 # Improvement tracker
 
-The owner's goal: track every improvement in order, and re-evaluate after every 2 steps. Each re-evaluation is done by a fresh reviewer agent that gets the code and the results, not the author's conclusions. Its verdict is copied here, with what changed because of it.
+The owner's goal: track every improvement in order, and re-evaluate after every 2 steps. The owner named `/advisor` for the re-evaluations. `/advisor` is a command in the user interface: an agent cannot call it (tried on 2026-11-25; the tool answered "a UI command, not a skill"). So RE1 to RE3 used fresh reviewer agents, and the owner can run `/advisor` on this file to check them. Each re-evaluation is done by a fresh reviewer agent that gets the code and the results, not the author's conclusions. Its verdict is copied here, with what changed because of it.
 
 Background: `docs/network_panel.md`.
 
