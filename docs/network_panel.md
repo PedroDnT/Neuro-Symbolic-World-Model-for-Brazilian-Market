@@ -1,5 +1,11 @@
 # Network design panel (2026-11-23)
 
+> **Superseded in part (2026-11-25).** Steps 3 to 6 of `docs/IMPROVEMENTS.md` tested these claims in the repository. Where they differ, use the tested results:
+> - Debt proxy of the shipped rule: absolute rank correlation 0.43 to 0.70 on the quarterly level target, against the panel's -0.11 to +0.11. The sign follows the shock, so it ranks leverage.
+> - Signed layer: it failed against the baselines (step 3).
+> - Pass-through: 0.67 (0.59 to 0.74), fragile (step 4), against the panel's 0.54.
+> - Worst-case second round: 25 % to 53 % of the direct loss (about 14 % without insolvent companies), against the panel's 6 to 7 %. So "the network does not matter" does not hold as a worst case.
+
 The owner asked how to model the engine as a network, as first planned. A panel answered it: 3 independent designs, 3 judges with different questions, and a synthesis written by hand (the synthesis agent hit a usage limit).
 
 The numbers below come from the panel's read-only reruns on the data in this repository. They are **provisional**: steps 2 to 4 of `docs/IMPROVEMENTS.md` rebuild them in the repository with tests.

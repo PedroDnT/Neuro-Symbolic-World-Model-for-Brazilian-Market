@@ -13,8 +13,8 @@ Background: `docs/network_panel.md`.
 | 4 | Pass-through regression with firm fixed effects (kill rule below) | **survived** | `python -m src.evaluation.pass_through` (`data/pass_through.csv`). θ = 0.665, clustered 95 % interval 0.59 to 0.74, firm bootstrap 0.51 to 0.80 (327 firms, 7,002 rows). Out-of-sample skill 22.4 % against the firm mean; 12 wins of 12 test quarters. See "Step 4 result" below. |
 | RE2 | Re-evaluation of steps 3-4 | done | Step 3: final, failed (3 of 3 reviewers). Step 4: survived under the code's reading of the rule (2 of 2 reviewers that checked it), but fragile: see below. |
 | 5 | If step 3 passes: the stress engine uses the fitted signed layer; score the 2025 filings frozen | **cancelled** (step 3 failed) | The README states the result with the wording that RE2 corrected. |
-| 6 | Contagion capacity bound for 4 historical shock sizes | done | `python -m src.evaluation.contagion_bound` (`data/contagion_bound.csv`). Worst-case second-round loss: 13.6 % to 14.7 % of the direct loss, for all 4 shock sizes and both θ. Supplier links give about 78 % of it. See "Step 6 result" below. |
-| RE3 | Re-evaluation of steps 5-6 | pending | |
+| 6 | Contagion capacity bound for 4 historical shock sizes | done, corrected after RE3 | `python -m src.evaluation.contagion_bound` (`data/contagion_bound.csv`). The first run ("at most about 15 %") was wrong: a bug gave companies with negative equity no distress. Corrected worst case: the second round is **25 % to 53 %** of the direct loss (registered FX rule), about 14 % if companies insolvent before the shock pass on nothing. 2 or 3 links drive it. See "Step 6 result". |
+| RE3 | Re-evaluation of steps 5-6 | done | Step 5 cancellation: pass (2 of 2). Step 6: fail on the claim (2 of 2), then corrected. Verdicts and changes below. |
 
 ## Kill rules, fixed before the runs
 
@@ -301,24 +301,121 @@ Reading (corrected after RE2): for a firm with a filed foreign-currency split, t
 | Code notes (target not winsorized in the sector and firm means; no end date for event quarters; constant predictor scores 0) | No change: the verdict is the same either way (reviewer 1 checked it), and the code stays as it was run. |
 | Step 3b (response target) proposed by reviewer 3 | Not run. Exploratory checks by reviewer 1 give 6 of 9 wins and a mean gain of about 0, so it would very likely fail, and it would not be blind. The owner decides. |
 
-## Step 6 result, 2026-11-25
+## Step 6 result, 2026-11-25 (corrected after RE3)
 
-A bound, not a test. 100 companies, 43 with FX debt, 67 exposures (39 supplier, 18 related party in both directions, 10 ownership).
+A bound, not a test. 100 companies, 67 exposures (39 supplier, 18 related party in both directions, 10 ownership).
 
-| Shock (quarter) | s | θ | Direct loss (R$ bn) | Second round (R$ bn) | Second / direct | Ownership | Supplier | Related party |
-|---|---|---|---|---|---|---|---|---|
-| 2020 Q1 | +29.0 % | 0.665 | 97.1 | 14.3 | 14.7 % | 1.6 | 11.2 | 1.8 |
-| 2020 Q1 | +29.0 % | 1.0 | 144.8 | 19.7 | 13.6 % | 2.5 | 15.1 | 2.7 |
-| 2015 Q3 | +28.1 % | 0.665 | 94.0 | 13.8 | 14.7 % | 1.6 | 10.8 | 1.7 |
-| 2015 Q3 | +28.1 % | 1.0 | 140.4 | 19.4 | 13.8 % | 2.4 | 15.0 | 2.6 |
-| 2015 Q1 | +20.8 % | 0.665 | 69.6 | 10.3 | 14.7 % | 1.2 | 8.0 | 1.3 |
-| 2015 Q1 | +20.8 % | 1.0 | 104.7 | 15.4 | 14.7 % | 1.8 | 12.0 | 1.9 |
-| 2018 Q2 | +16.0 % | 0.665 | 53.7 | 7.9 | 14.7 % | 0.9 | 6.2 | 1.0 |
-| 2018 Q2 | +16.0 % | 1.0 | 80.7 | 11.9 | 14.7 % | 1.4 | 9.3 | 1.5 |
+**The first run was wrong.** It reported "at most about 15 %". RE3 found 2 bugs in the code, against the registered method: a company with negative equity got distress 0 instead of 1 (so Braskem and Gol passed on nothing), and supplier and related-party losses were added, so a company could lose more than its receivables. Both are fixed, with tests. A 2nd FX-debt rule is added after RE3: the registered rule gives a company with no FX-debt data (CSN, Neoenergia, Localiza) a direct loss of 0, which is not a worst case, so the table also shows the rule "unknown FX debt = total debt".
+
+| Shock (quarter) | s | θ | Second / direct (registered rule) | Second / direct (unknown = total debt) | Related party (R$ bn, registered) |
+|---|---|---|---|---|---|
+| 2020 Q1 | +29.0 % | 0.665 | 33.7 % | 38.2 % | 23.6 |
+| 2020 Q1 | +29.0 % | 1.0 | 25.3 % | 30.1 % | 24.2 |
+| 2015 Q3 | +28.1 % | 0.665 | 34.4 % | 38.7 % | 23.6 |
+| 2015 Q3 | +28.1 % | 1.0 | 26.0 % | 30.8 % | 24.1 |
+| 2015 Q1 | +20.8 % | 0.665 | 42.8 % | 45.1 % | 23.3 |
+| 2015 Q1 | +20.8 % | 1.0 | 32.0 % | 36.9 % | 23.7 |
+| 2018 Q2 | +16.0 % | 0.665 | 52.6 % | 52.4 % | 23.1 |
+| 2018 Q2 | +16.0 % | 1.0 | 38.4 % | 41.8 % | 23.4 |
+
+(Direct loss after the cap at equity; `data/contagion_bound.csv` also has the ratio over the direct loss before the cap.)
 
 Reading:
-- The ratio hardly changes with the shock size, because almost no company reaches its equity cap. Distress is then linear in the loss, so the second round scales with the direct loss.
-- The bound depends on the worst-case assumption that all of a supplier's receivables are owed by its most distressed linked customer. The largest added losses are Copel (R$ 4.2 bn, via Klabin and Sanepar), Petrobras (R$ 3.7 bn, via Braskem, Cemig and Gerdau) and JSL (R$ 1.4 bn, via Klabin and Suzano). Real receivables are spread over many customers, so the real second round is smaller.
-- The panel's figure (6 to 7 %) used different assumptions. This bound, about 15 %, replaces it as the number that this repository reproduces.
-- The direct loss covers only FX debt, so the bound applies to a dollar shock. Minerva has equity of R$ 87 million at 2024 Q4, so its direct loss reaches its equity cap.
+- About R$ 23 bn of the second round comes from 1 related-party link: Petrobras's receivables (R$ 22.1 bn) against Braskem, whose equity was already negative before any shock. The worst case gives Braskem full distress at every shock size, so this part does not grow with the shock, and the ratio falls as the shock grows.
+- If companies that were insolvent before the shock pass on nothing (the first run, with the receivables pool fixed), the bound is about 14 %. Without the Copel-Klabin supplier link, whose evidence is a general sentence about concessions, it is about 9 % (RE3, exploratory).
+- So the worst-case second round is somewhere between about 14 % and 53 % of the direct loss, and 2 or 3 links decide where. Each worst case assumes that all of a company's receivables are owed by its most distressed linked counterparty; real receivables are spread, so the real figure is smaller.
+- Limits: the links are from 2021 and the balances from 2024; Metalúrgica Gerdau and Randon consolidate subsidiaries (Gerdau, Frasle) whose loss is also counted directly; only the 67 known exposures are used.
+
+### RE3 (steps 5-6), 2026-11-25
+
+2 fresh reviewers, each with a different focus, with the instruction to treat the author's interpretation as a claim to test. **Verdicts, word for word:**
+
+**Reviewer 1 (focus: step 6 code)** (step 5 ok: True; step 6 ok: False)
+
+> **Step 5: PASS.** It was correctly cancelled. It was conditional on step 3, and step 3 failed (`data/event_test.csv`: 2 of 9 wins).
+>
+> **Step 6: FAIL, on the claim.** The re-run matches `data/contagion_bound.csv` exactly (max diff 0) and the 4 tests pass. The commit order holds: method b9815d7 at 03:46:35, code e8795f9 at 03:47:40, CSV written 03:47:43, result 3b1f9e4 at 03:48:24. The README's "at most about 15 %" is not an upper bound.
+>
+> **Findings** (scripts in /tmp/claude-0/-home-user/5b8bca33-e002-5f72-9136-8e92e0ffce78/scratchpad/re3/)
+>
+> - **BLOCKER: negative-equity firms never transmit distress.** Line 57 caps their loss at 0. Line 61's `.where(loss>0, 0.0)` then overrides `fillna(1.0)`, so Braskem (equity −4.278 bn, matches raw DFP 2.03; FX debt 65.1 bn) has distress 0. Petrobras' 22.08 bn of receivables (raw 1.01.03) therefore lose nothing through Braskem. Gol's direct loss (4.2 bn) is also dropped.
+>   - Counting a negative-equity firm as fully distressed, which is the code's own `fillna(1.0)` intent, gives 57.5 % at 2020 Q1 θ 0.665 (code's summing) or 33.7 % (one max over all links). At 2018 Q2 it is 95.7 % or 52.6 %.
+>   - The method text does not define distress for equity ≤ 0.
+> - **BLOCKER: missing FX debt understates the bound.** The method's rule "no data → D = 0" applies to CSN (status no_amounts, split 0, debt 56.9 bn), Neoenergia and Localiza.
+>   - Exploratory: CSN alone at FX = total debt gives 27.1 %.
+>   - The rule can be followed and still give no upper bound.
+> - **should-fix: supplier and related-party losses are summed separately** (lines 65-69). The method says a firm uses the largest distress, so its loss never exceeds its receivables. 5 firms have both kinds of link. As run, one shared max gives 14.2 % instead of 14.7 %. With Braskem treated as distressed, Petrobras would lose 44.2 bn against 22.1 bn of receivables.
+> - **should-fix: undeclared change of the ratio base.** The method says sum L − sum D. The code subtracts D capped at equity. Uncapped D is 116.6 bn, not 97.1 bn, so the literal formula is −4.4 %. Second round over uncapped D is 12.3 %.
+> - **should-fix: the link-type shares do not add up.** They sum to 0.316 bn more than the second round, because Braskem's added 0.30 bn is capped away.
+> - **Matches the method:**
+>   - link directions (src owns dst; src supplies dst);
+>   - stake = weight/100;
+>   - the 4 shocks;
+>   - the FX-debt rule (audited 0 overrides the split: Axia 16.8 bn, Energisa 7.5 bn).
+>   - Convergence takes 23 iterations; a tolerance of 1e-6 changes the result by about 1e-9 bn. A loop that hits its limit gives no warning.
+> - **should-fix: the author's reading is partly wrong.**
+>   - Petrobras' 3.6 bn comes through **Copel** (distress 0.163). Braskem, Cemig and Gerdau give 0, 0.032 and 0.033.
+>   - Copel's 4.19 bn comes from Klabin alone; Sanepar's distress is 0.
+>   - Klabin's distress (0.76: FX debt 34.07 bn against equity 8.637 bn, both checked against raw) drives about 9.2 of the 14.3 bn.
+>   - Exploratory: dropping the Copel→Klabin edge gives 8.7 %. That edge's evidence is a general sentence about concessions.
+>   - The stable ~14.7 % across shock sizes partly results from zeroing Braskem and Gol.
+> - **note:**
+>   - Raw checks pass for Copel (1.01.03 5.507 bn, of which 1.544 bn are not trade), JSL (1.815 and 1.770 bn) and Minerva (2.03 87.2 M).
+>   - The links are from 2021, the balances from 2024.
+>   - Metalúrgica Gerdau's and Randon's direct losses double-count subsidiaries they consolidate (Gerdau, Frasle).
+>   - No test covers equity ≤ 0, a firm with both link types, or the ratio.
+
+**Reviewer 2 (focus: the line and the public claims)** (step 5 ok: True; step 6 ok: False)
+
+> **Step 5 (cancellation): PASS.** **Step 6: PASS WITH FIXES.** The computation reproduces, but the public claim "at most about 15 %" has to change before it is accurate.
+>
+> ## Step 5
+> - The pre-registered row (cb839ef) says "If step 3 passes: …". `data/event_test.csv` reproduces step 3 failing: 2 of 9 wins, mean gain -0.273. So the cancellation follows the rule.
+> - **note:** the pre-registered consequence ("firm-level data add nothing beyond the sector") was reworded after the result. The change is disclosed in the tracker. The new wording matches the CSV: the signed predictor beats the sector median in only 2 of 9 quarters.
+> - **should-fix:** the rest of that consequence, "the product is the audited exposure data set", is only partly carried out. The README still opens by selling the ranked engine.
+>
+> ## Public numbers (reproduced in scratch `re3/b4.py`)
+> - Every step 3, 4 and 6 number in the README reproduces: θ 0.665 (interval 0.588 to 0.742), unwinsorized 0.891 (0.748 to 1.033), skill 22.4 % with 12 wins, unclipped skill 8.5 % with 8 wins, θ 0.58 in large moves, the 6 % OCI range 0.56 to 0.79, and the step 6 ratios.
+> - **note:** README "own recent mean predicts it best" is untrue in 2022 Q2, where the shipped rule scores 0.700 against 0.607.
+> - **note:** the range 0.56 to 0.79 holds only for firms with a fitted slope (94 to 176 firms). Over all firms it is 0.38 to 0.62.
+> - **should-fix:** "θ is 0.58…" and the unwinsorized figures are exploratory, but the README does not label them so.
+> - **should-fix, hides fragility:** "parts with evidence" includes step 4, but the README never says that the other reading of the pre-registered rule kills step 4 (interval contains 1). I also computed (exploratory) that dropping the 5 top firms (Gol, Suzano counted twice, and others) gives out-of-sample skill of **-0.7 %**.
+> - **note:** the opening line "tests … found that this ranking follows leverage" describes a total-debt proxy. The engine's own ranking was never scored against filed outcomes. Exploratory: the engine's loss correlates 0.71 with gross debt/equity, so the statement is plausible, but it was not tested.
+> - **should-fix:** `docs/network_panel.md` still calls its numbers "provisional" with no pointer to the results that now contradict them:
+>   - the -0.11 to +0.11 correlation, where step 3 measured 0.43 to 0.70 in absolute value;
+>   - the pass-through of 0.54, against 0.665;
+>   - the 6 to 7 % second round, against 14.7 %;
+>   - the claim that "the network does not matter".
+>
+> ## Step 6
+> - The method (b9815d7) was committed before the code (e8795f9) and before the output (mtime 03:47:43). The CSV reproduces exactly.
+> - **should-fix, contagion_bound.py:57.** `.fillna(1.0).where(loss > 0, 0.0)` sets the distress of every non-positive-equity firm to 0, so the `fillna(1.0)` has no effect.
+>   - Braskem (R$ 65.1 bn of FX debt) and Gol (R$ 21.8 bn) pass on no distress, and their R$ 19.5 bn of direct loss leaves the denominator (θ 0.665, 2020 Q1).
+>   - Exploratory: with those firms at distress 1 and one receivables pool per firm, the bound is **25 % to 53 %**, and it now changes with the shock size.
+>   - So "at most about 15 %" is not a worst case. The tracker line "Petrobras via Braskem, Cemig and Gerdau" is also wrong: Braskem's distress is 0, and Copel (0.163) drives the R$ 3.6 bn.
+> - **note:** supplier and related-party losses are added together, which breaks the method's "never exceeds its receivables": R$ 12.97 bn against 12.58 bn. The type shares sum to R$ 14.62 bn against a second round of R$ 14.30 bn. The bound also covers only the 67 known exposures.
+>
+> ## Decisions open for the owner
+> 1. **How to read the step 4 rule.** The winsorized reading survives and the raw reading is killed. Given the raw interval, the 8.5 % raw skill and the -0.7 % skill without 5 firms, the evidence supports at most "fragile, a few firms".
+> 2. **Step 3b (response target).** RE2's exploratory run gave 6 of 9 wins with a mean gain of about 0, and the test would not be blind. Little to gain.
+> 3. **Step 6 treatment of insolvent firms.** Decide distress 0 or 1, then restate the bound. Fixed only to the method's own worst case, it moves to about 25 to 53 %.
+> 4. **Product framing.** The pre-registered consequence points to the exposure data set.
+> 5. **Annotate or retire the panel numbers** in `docs/network_panel.md`.
+>
+> Tests: 128 passed. Scratch scripts: /tmp/claude-0/-home-user/5b8bca33-e002-5f72-9136-8e92e0ffce78/scratchpad/re3/b1.py through b5.py.
+
+**What changed because of it**
+
+| Finding | Change |
+|---|---|
+| Blocker: negative-equity companies pass on no distress | Fixed: a company with no equity left and a loss is fully distressed. Test added. The bound moves from "about 15 %" to 25 % to 53 %. |
+| Blocker: no FX-debt data gives a direct loss of 0 | A 2nd rule ("unknown = total debt") is reported beside the registered rule. |
+| Supplier and related-party losses added | Fixed: 1 receivables pool per company. Test added. |
+| Ratio base not as written | Both are now in the CSV: over the direct loss after the cap (used in the text) and before it. |
+| Type shares do not add up | Fixed: scaled to the second round after the cap. Test added. |
+| No warning when the loop does not converge | Fixed: it raises an error. |
+| Author's reading wrong (Petrobras via Braskem; Copel via Klabin and Sanepar) | Rewritten: the corrected run has Petrobras via Braskem (related party, R$ 23 bn); the first run had it via Copel. |
+| README hides the step 4 fragility; exploratory numbers not labelled; "own recent mean predicts best" untrue in 2022 Q2; OCI range only for firms with a slope; the opening claims more than was tested | README section rewritten. |
+| `docs/network_panel.md` numbers contradicted | A note at the top points to the tested results. |
+| Product framing; insolvent-company rule; step 4 reading; step 3b | Open decisions for the owner. Not changed. |
 
