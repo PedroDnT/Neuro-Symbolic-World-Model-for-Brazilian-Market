@@ -121,6 +121,15 @@ The rules run on the filed history of each company (`python -m src.knowledge.rul
   - No error in the shock: Eletrobras (now Axia Energia, 0) swaps its foreign-currency debt to CDI, and that debt is already in its CDI line. Braskem (1.33) includes the R$ 15.5 bn financing of Braskem Idesa, which the filing reports outside accounts 2.01.04 + 2.02.01; without it the ratio is 1.01.
   - JBS has 13 times more foreign-currency lines than its filed split, which looks incomplete.
 
+## What the network panel found
+
+The owner asked how to make the engine a real network model, as first planned. A panel of 3 independent designs and 3 judges answered it (`docs/network_panel.md`). Its numbers are provisional until they are rebuilt here with tests (`docs/IMPROVEMENTS.md`).
+
+- **The firm-to-firm network does not matter with this data.** The worst-case second-round loss is about 6 to 7 % of the direct losses, and supplier links add nothing measurable against placebo networks.
+- **The ranking above has no rank information yet.** Debt × shock × 0.66 has a rank correlation of -0.11 to +0.11 with each firm's filed equity effect in 7 past shock years. It ignores the translation of foreign subsidiaries, hedge results and export revenue.
+- **A signed first layer from filed accounts does have information** (rank correlation 0.29 to 0.39 in 4 past shock years), and the pass-through of the dollar to the financial result is clearly identified (0.54, standard error 0.05).
+- **Next:** test whether that signed layer beats the sector average, which is the obvious answer. The rules that would kill it are fixed in `docs/IMPROVEMENTS.md` before the run.
+
 ## Limits
 
 - The hybrid shock effect is an accounting pass-through with stated assumptions: no change in revenue or operating costs, debt held constant, 34 % tax. It is not learned from data.
