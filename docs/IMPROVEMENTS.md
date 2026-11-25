@@ -6,13 +6,13 @@ Background: `docs/network_panel.md`.
 
 | Step | Improvement | Status | Evidence |
 |---|---|---|---|
-| 1 | State the panel verdict in the README and the pages | done | README section "What the network panel found"; `docs/network_panel.md` |
+| 1 | State the panel verdict in the README and the pages | done | README section "What the network panel and the tests found" (renamed after RE2); `docs/network_panel.md` |
 | 2 | Build the filed-outcome panel (financial result, translation and hedge lines, FX loans, equity) for all non-financial filers | done, fixed after RE1 and its check | `src/data_ingestion/filed_panel.py` writes `data/filed_panel.csv`: 27,820 company-quarters, 945 non-financial companies (628 consolidated, 317 that file only individual statements), 2011 Q1 to 2024 Q4. Fiscal Q2 and Q3 use the filed 3-month values; fiscal Q1 is the year to date; fiscal Q4 is the annual value minus 9 months. April-to-March companies are included. The financial result matches the raw filings in 107 rows checked by hand, and an independent rebuild matches all 27,822 rows. Translation and hedge are unknown (empty) for 2,769 rows whose filing shows only a nonzero total. `restated_q` marks 1,412 rows where the year-to-date difference disagrees with the filed 3-month value; `suspect_q` marks 58 rows. The step 3 rule leaves 325 to 470 companies in each event quarter. 34 tests in `tests/test_filed_panel.py`. |
 | RE1 | Re-evaluation of steps 1-2 | done | Step 1: pass with fixes. Step 2: fail (1 blocker), then fixed. Verdict and changes below. |
 | 3 | Signed first-hop event test (kill rule below, fixed before the run) | **failed** | `python -m src.evaluation.event_test` (`data/event_test.csv`). The signed predictor beats both baselines in 2 of 9 quarters; mean gain -0.27, t = -3.0. The pass rule needs 7, 0.15 and 2. Result and a design problem of the target: see "Step 3 result" below. |
 | 4 | Pass-through regression with firm fixed effects (kill rule below) | **survived** | `python -m src.evaluation.pass_through` (`data/pass_through.csv`). θ = 0.665, clustered 95 % interval 0.59 to 0.74, firm bootstrap 0.51 to 0.80 (327 firms, 7,002 rows). Out-of-sample skill 22.4 % against the firm mean; 12 wins of 12 test quarters. See "Step 4 result" below. |
-| RE2 | Re-evaluation of steps 3-4 | pending | |
-| 5 | If step 3 passes: the stress engine uses the fitted signed layer; score the 2025 filings frozen | pending | |
+| RE2 | Re-evaluation of steps 3-4 | done | Step 3: final, failed (3 of 3 reviewers). Step 4: survived under the code's reading of the rule (2 of 2 reviewers that checked it), but fragile: see below. |
+| 5 | If step 3 passes: the stress engine uses the fitted signed layer; score the 2025 filings frozen | **cancelled** (step 3 failed) | The README states the result with the wording that RE2 corrected. |
 | 6 | Contagion capacity bound for 4 historical shock sizes | pending | |
 | RE3 | Re-evaluation of steps 5-6 | pending | |
 
@@ -59,7 +59,7 @@ Sharpened after RE1 and after its check, before any step-3 or step-4 result exis
 - Skill = 1 - (sum of squared errors of the model) / (sum of squared errors of the baseline), over all rows of the 12 test quarters. A quarter is a win when the model's squared error in that quarter is lower.
 - Interval of θ: θ fitted on all rows through 2024 Q4, with a standard error clustered by quarter; 95 % interval = θ ± 1.96 standard errors. A firm bootstrap (200 draws, percentile interval) is reported as a check.
 
-If step 3 fails, the README says that the firm-level data add nothing beyond the sector average, and the product is the audited exposure data set.
+If step 3 fails, the README says that the firm-level data add nothing beyond the sector average, and the product is the audited exposure data set. (Corrected after RE2, because the data contradict this sentence: the README says that the signed layer adds nothing beyond the baselines on the level target.)
 
 ## Re-evaluations
 
@@ -170,7 +170,7 @@ Pre-registered rule: **failed** (2 wins of 9, mean gain -0.27, t = -3.0).
 - The firm's own 4-quarter mean, which has no FX information, scores 0.34 to 0.82.
 - The shipped rule scores +0.54 to +0.70 when the dollar rises and -0.43 to -0.58 when it falls. Its sign follows the shock, so it ranks debt level, not the FX response.
 
-So this test cannot tell whether the signed layer captures the FX response; it mostly measures leverage. The result stands as pre-registered: the signed predictor did not beat the baselines on this target. The author chose the level target (a recorded decision before RE1), and RE1 proposed the same target. Whether to pre-register a new test on the response (the target minus the firm's own normal level) is the owner's decision; nothing about it was run.
+So this test mostly measures leverage and the normal interest level. (Corrected after RE2: it does show that the firm slopes carry information on the FX part of comprehensive income, which they predict with a rank correlation of 0.56 to 0.79 in all 9 quarters; that part is too small to move the rank of the total.) The result stands as pre-registered: the signed layer adds nothing beyond the baselines on the level target. It does not show that firm-level data add nothing beyond the sector: the firm's own mean beats the sector median in 9 of 9 quarters, and the shipped rule (firm leverage) beats it in 7 of 9. The author chose the level target (a recorded decision before RE1), and RE1 proposed the same target. Whether to pre-register a new test on the response (the target minus the firm's own normal level) is the owner's decision; nothing about it was run.
 
 ## Step 4 result, 2026-11-25
 
@@ -191,5 +191,103 @@ Pre-registered kill rule: **not killed** (skill 22.4 % ≥ 10 %; 12 of 12 wins �
 | 2024 Q3 | 127 | -0.020 | 0.645 | 0.164 |
 | 2024 Q4 | 123 | +0.137 | 0.648 | 0.438 |
 
-Reading: for a firm with a filed foreign-currency split, about 2/3 of the mark-to-market effect of the dollar on its FX loans shows in its financial result in the same quarter (the rest is hedged, capitalized or in other lines). The gain is largest in quarters with a large move. The estimate is stable from fit to fit (0.625 to 0.648). It covers only firms that file the split (about 120 to 130 per quarter); for the others, a 0 in the split does not mean no FX debt.
+Reading (corrected after RE2): for a firm with a filed foreign-currency split, the financial result moves with the mark-to-market of its FX loans in the same quarter. The size depends on the method and the shock: θ = 0.67 winsorized; 0.89 without winsorizing (interval 0.75 to 1.03, which contains 1); 0.58 in quarters with a move above 10 %, 0.86 for 5 to 10 %, 0.77 below 5 % (exploratory). Why θ is below 1 was not tested. The gain is concentrated: 5 firms (airlines, a shopping-mall operator and Suzano) give all of the reduction in squared error, and Suzano is counted twice (holding and operating company). Scored against the outcome without clipping, the skill is 8.5 % with 8 wins (exploratory; 2 extreme rows drive it). It covers only firms that file the split (about 120 to 130 per quarter).
+
+### RE2 (steps 3-4), 2026-11-25
+
+3 fresh reviewers, each with a different focus. Each got the code, the data and the tracker, with the instruction to treat the author's interpretation as a claim to test. **Verdicts, word for word:**
+
+**Reviewer 1 (focus: step 3)** (step 3 final: True; step 4 final: False)
+
+> **Step 3: FINAL, failed.** I re-ran it without writing to the repository and got the same numbers as data/event_test.csv to machine precision (largest difference 0.0): 2 wins of 9, mean gain -0.273, t -3.00, at least 325 firms in every quarter. All three pass conditions fail by a wide margin.
+>
+> **Step 4: NOT FINAL here.** I did not review it because this run focused on step 3. The step-4 reviewer has to decide it.
+>
+> **Order of commits (checked):** kill rule cb839ef/f786193 → step-3 method ce40cf6 (03:32:55) → code e681d8d (03:34:08) → result ab54bb4 (03:34:56). ab54bb4 does not change any step-3 rule text. data/ is gitignored, so the run time cannot be proven from git. The output file's mtime (03:34) matches the order.
+>
+> **1. Code against the method**
+> - **note: target not winsorized.** The method says training variables are winsorized, but `sector_medians` and `firm_means` use the raw target. With the target winsorized I get the same verdict, and every sector score is unchanged to 3 decimals.
+> - **note: added rules that never apply.** `spearman` returns 0 for a constant predictor or fewer than 3 rows, which the method does not state. It never happens here.
+> - **note: no end date for event quarters.** `event_quarters` has no upper bound at 2024 Q4. The macro file ends at 2024 Q4, so it finds the same 9 quarters.
+> - **note: filled zeros have no effect.** Debt and the FX split are filled with 0, but no event row has missing debt.
+> - Everything else matches: the shipped sign, θ with quarter fixed effects, β_i through the origin with at least 8 quarters, the sector fallback, average ranks for ties, and the 50-firm floor.
+>
+> **2. Bug or real failure?** I found no bug. The signs are coherent (θ is 0.60 to 0.85 and positive). The panel has no duplicate keys, no missing `suspect_q`, and no missing sector.
+>
+> **3. The author's claim about the level target: mostly supported.**
+> - The financial result drives the rank of the target. The Spearman of fin with the target is 0.81 to 0.93; the OCI FX part's is 0.23 to 0.42.
+> - Leverage (debt/equity) against the target is -0.43 to -0.70, negative in all 9 quarters. Since shipped = -sign(s) × that correlation, the sign flip follows from the algebra. Its size is smaller when the dollar falls (0.43, 0.58) than when it rises (mean about 0.64), which is a small FX trace on top of leverage.
+> - The firm's earlier level explains much of the target: the rank R² of its own 4-quarter mean is 0.11 to 0.67. Its average fin/equity in calm quarters (|s| < 5 %) scores 0.41 to 0.68 and beats the signed predictor in 9 of 9 quarters.
+> - **should-fix: "cannot tell" goes too far.** The β·s part predicts the OCI FX part at 0.56 to 0.79 (94 to 176 firms) in all 9 quarters, whichever way the dollar moved.
+> - The pass-through part predicts fin among firms that file the split at 0.29 to 0.56 when the dollar rises, but at -0.05 and -0.19 when it falls.
+> - Exploratory, cannot change the verdict: on response targets (the target minus the firm's 4-quarter mean, or minus its calm-quarter mean), the signed predictor wins 6 of 9 (mean gain -0.001, t -0.03) and 5 of 9 (-0.024, t -0.65). A new response test is therefore no likely pass.
+> - **note: built-in ceiling on the score.** The signed prediction is exactly 0 for 51 to 58 % of firms (pass-through is 0 for 71 to 78 %). This large block of ties limits its Spearman. It is part of the pre-registered design, not a bug.
+>
+> **4. Consequences**
+> - **should-fix: the pre-registered consequence is contradicted by the data.** The fail clause says "firm-level data add nothing beyond the sector average", but the sector median lost to the shipped rule (firm leverage) in 7 of 9 quarters and to the firm mean in 9 of 9. The README should say instead that the signed predictor did not beat the baselines on the level target.
+> - **should-fix: README is stale.** README.md:131 still says "Next: test…".
+> - **note: step 1 conflicts with these numbers.** Step 1 reported a shipped rank correlation of -0.11 to +0.11 on annual data, but here its absolute value is 0.43 to 0.70 every quarter. The owner should reconcile the two.
+>
+> Scratch scripts: /tmp/claude-0/-home-user/5b8bca33-e002-5f72-9136-8e92e0ffce78/scratchpad/re2/a1.py, a2.py, a3.py
+
+**Reviewer 2 (focus: step 4)** (step 3 final: True; step 4 final: True)
+
+> **Step 3: FINAL, failed.** I re-ran it with no file writes and it matches `data/event_test.csv` exactly (max diff 0). The verdict is 2 wins of 9, mean gain -0.273, t = -3.00. The rule needs 7 wins, a gain of 0.15 and t = 2, so it misses by a wide margin.
+>
+> **Step 4: FINAL, survived, read the way the code reads the rule.** The re-run matches `data/pass_through.csv` exactly: skill 0.224, 12 of 12 quarters won, θ 0.665 with a clustered interval of 0.588 to 0.742 and a bootstrap interval of 0.505 to 0.804. The 9 tests pass. The order in git holds: the kill rule went in at cb839ef, the method at ab54bb4, the code at b3b2376, the result at b098b9d. The commits are 38 to 50 s apart, so git cannot show that nothing was run before the method was written down. When ab54bb4 was written, step 3 had already reported a pooled θ of 0.60 to 0.85.
+>
+> ## Deviations from the step-4 method
+> - **should-fix, `interval()`.** The code winsorizes the full-sample fit and its bootstrap. The method's interval bullet does not say to. The general rule ("winsor limits from the training quarters") supports the code. Read the other way, **the unwinsorized θ is 0.891 with an interval of 0.748 to 1.033, which contains 1, so criterion 3 would kill the step.** The owner should confirm the reading and write it into the tracker.
+> - **note.** Each bootstrap draw reuses the full-sample winsor limits; they are not re-estimated. The cluster correction is G/(G-1) only. The demeaning matches an exact dummy-variable regression to 1e-15. The firm means, the 4-quarter minimum, the pooled skill, the per-quarter wins and the clipping of test y all follow the method.
+>
+> ## Leakage and artefacts (all exploratory)
+> - No leakage found. Training uses rows strictly before q, there are no duplicate firm-quarters, and the existing test covers this.
+> - **Placebos are clean.** Over 20 random permutations of the shock, skill averages -0.008 (max 0.011), wins reach at most 8, and θ falls between -0.10 and 0.19. Using next quarter's shock gives θ = -0.18, last quarter's gives -0.12, and the FX-loan level without the shock gives 0.02.
+> - The skill comes from the current exposure term, not from a drift correction: x(q) alone gives 0.220, drift alone -0.009.
+> - **Standard errors.** Clustering by quarter (56 clusters) gives 0.039. Clustering by firm gives 0.082 and two-way clustering 0.085, which still exclude 0 and 1. A wild cluster bootstrap gives p = 0.001 against both 0 and 1.
+> - **Influence.**
+>   - Dropping one quarter at a time keeps θ between 0.653 and 0.693.
+>   - Dropping the 5, then 10, most exposed firms gives skill 0.157 and 0.133, with 10 and 9 wins, and θ of 0.571 and 0.514. Both still pass, but with little margin.
+>   - Dropping the 5 firms with the most leverage gives 0.165 and 9 wins.
+> - **should-fix, concentration.** The 5 firms with the largest gains (airlines, 21008, Suzano) account for 102 % of the reduction in squared error. Firms 9067 and 13986 are the same economic firm (correlation 1.000) and are counted twice. Most of their test rows sit at the clip limits.
+> - **note, clipped test y.** Scored against raw y, the skill is 0.085 with 8 wins. Two outlier rows drive that number (11312 2024 Q2 with y = 0.598, and 20990), which suggests a data problem rather than a model failure. The method does specify clipping test rows.
+>
+> ## Author's interpretation
+> - **should-fix.** "About 2/3 pass-through" depends on winsorization: unwinsorized θ is 0.89, and without the quarters where the dollar moved more than 10 % it is 0.80. The tracker should report the range and the concentration in a few firms.
+>
+> Scratch scripts: /tmp/claude-0/-home-user/5b8bca33-e002-5f72-9136-8e92e0ffce78/scratchpad/re2/
+
+**Reviewer 3 (focus: statistics and claims)** (step 3 final: True; step 4 final: True)
+
+> **Step 3: FINAL, failed.** My own rebuild from the pre-registered text, using scipy's Spearman with average ranks for ties, matches `data/event_test.csv` to within 5e-16. It gives 2 wins of 9, a mean gain of -0.273 and t = -3.00 (df 8, p = 0.017). The fail does not depend on the win rule: against the sector median alone, the signed predictor has a mean gain of -0.029 and wins 2 of 9.
+> **Step 4: FINAL, not killed.** My rebuild uses dummy-variable OLS, not the code's alternating demeaning. It gives θ = 0.6651 on 7,002 rows and 327 firms, with a quarter-clustered SE of 0.0393 (interval 0.588 to 0.742). Every out-of-sample number matches: skill 0.2240, 12 of 12 wins. Firm bootstrap: 0.505 to 0.804 with seed 0, 0.503 to 0.815 with seed 7.
+> Order of work: each output file's modification time is later than the commit of its code and method: event_test.csv at 03:34:11 against e681d8d at 03:34:08, pass_through.csv at 03:36:10 against b3b2376 at 03:35:46. Git cannot show whether an earlier run happened.
+>
+> **Findings**
+> - **should-fix (step 4 claim).** "The estimate is stable from fit to fit (0.625 to 0.648)" overstates it. Expanding windows share most of their rows, so stability across them is expected. Exploratory, by shock size: θ = 0.58 for |s| > 10 %, 0.86 for 5 to 10 %, 0.77 for 5 % or less. The stress use case is the large-shock group.
+> - **should-fix (step 4 claim).** "(the rest is hedged, capitalized or in other lines)" is a causal reading that was never tested. A noisy split recorded as the latest filed version could also pull θ down.
+> - **note (step 4, exploratory, cannot change the verdict).** The pre-registered method clips the outcome being scored. Without that clipping, skill is 8.5 % with 8 of 12 wins, below both thresholds; 2 rows with y above 0.5 of assets drive this. Dropping the 39 clipped rows gives 16.6 %. The model is closer than the baseline in only 44.5 % of rows. Firm-clustered SE is 0.082 (0.50 to 0.83), twice the quarter-clustered SE, but it still excludes 0 and 1.
+> - **note (step 3 claim, broadly supported).** Exploratory checks agree that the target mostly reflects the firm's usual level. Spearman(target, financial result) is 0.81 to 0.93. The spread of the target in event quarters is only 0.94 to 1.42 times its spread in nearby calm quarters. The firm's own mean scores 0.34 to 0.82. Half the firms (51 to 58 %) tie at 0 on the signed predictor, which weakens it under Spearman.
+> - **should-fix (pre-registered consequence).** "The firm-level data add nothing beyond the sector average" would be false: the firm mean beats the sector median in 9 of 9 quarters and the shipped rule in 7 of 9. The accurate wording is "the signed layer adds nothing beyond the sector median on the level target." README:129-130 (the shipped rule at -0.11 to +0.11, the signed layer at 0.29 to 0.39) is now contradicted.
+>
+> **Next step.** Fix the wording above, and use θ from step 4 only for firms that file the split, quoting it by shock size. Then pre-register a new test, **3b**. I did not compute it.
+> - **Response:** R = target(q) − N. N is the mean target of the firm's 4 most recent quarters before q that have |s| ≤ 10 %, all within q-8 to q-1. A firm with fewer than 4 such quarters is not scored.
+> - **Fixed parts:** the same 9 quarters, the same firm rule, and the predictors (a) to (c) taken from the code at e681d8d. The shipped rule stays as it is. The sector baseline is the median of R/s over earlier event quarters, times s(q).
+> - **Pass rule (the same as step 3):** each quarter has at least 50 firms, the signed predictor beats both baselines in at least 7 of 9 quarters, its mean gain is at least 0.15, and t is at least 2.
+> - **Its status:** the result is recorded separately and does not overturn step 3. The author has already seen these data, so it is not blind.
+>
+> Scratch scripts are in /tmp/claude-0/-home-user/5b8bca33-e002-5f72-9136-8e92e0ffce78/scratchpad/re2/.
+
+**What changed because of it**
+
+| Finding | Change |
+|---|---|
+| Step 3 verdict | Final, failed. Step 5 cancelled. |
+| "Firm-level data add nothing beyond the sector" is false | The step 3 consequence and the README say that the signed layer adds nothing beyond the baselines on the level target. |
+| "Cannot tell" goes too far | Corrected: the firm slopes predict the FX part of comprehensive income (0.56 to 0.79), but it is too small to move the total. |
+| Step 4 interval reading: the rule does not say whether the final θ is winsorized | Not changed after the result. Survived under the code's reading (winsorized, as in every fit of the method); killed under the other reading (θ 0.89, interval contains 1). Both are stated; the owner decides. |
+| "About 2/3", "stable", "the rest is hedged" overstate | Replaced by the range by method and shock size, the concentration in 5 firms and the raw-outcome skill. |
+| README is stale and step 1 numbers are contradicted | README section rewritten with the repository's own results. |
+| Code notes (target not winsorized in the sector and firm means; no end date for event quarters; constant predictor scores 0) | No change: the verdict is the same either way (reviewer 1 checked it), and the code stays as it was run. |
+| Step 3b (response target) proposed by reviewer 3 | Not run. Exploratory checks by reviewer 1 give 6 of 9 wins and a mean gain of about 0, so it would very likely fail, and it would not be blind. The owner decides. |
 
