@@ -7,7 +7,7 @@ Background: `docs/network_panel.md`.
 | Step | Improvement | Status | Evidence |
 |---|---|---|---|
 | 1 | State the panel verdict in the README and the pages | done | README section "What the network panel found"; `docs/network_panel.md` |
-| 2 | Build the filed-outcome panel (financial result, translation and hedge lines, FX loans, equity) for all non-financial filers | done, fixed after RE1 | `src/data_ingestion/filed_panel.py` writes `data/filed_panel.csv`: 27,823 company-quarters, 948 non-financial companies (630 consolidated, 318 that file only individual statements), 2011 Q1 to 2024 Q4. Flows are differences of year-to-date values inside the fiscal year, so April-to-March companies (sugar and ethanol) are included. Comprehensive-income lines are classified inside each filing, then the class sums are differenced. `restated_q` flags 1,219 of 13,948 fiscal Q2 and Q3 rows (8.7 %) where the derived flow of 3.06 or 4.02 differs by more than 1 % from the filed 3-month row. Lagged stocks (`<stock>_lag`) come from the previous calendar quarter. 24 tests in `tests/test_filed_panel.py`. |
+| 2 | Build the filed-outcome panel (financial result, translation and hedge lines, FX loans, equity) for all non-financial filers | done, fixed after RE1 and its check | `src/data_ingestion/filed_panel.py` writes `data/filed_panel.csv`: 27,820 company-quarters, 945 non-financial companies (628 consolidated, 317 that file only individual statements), 2011 Q1 to 2024 Q4. Fiscal Q2 and Q3 use the filed 3-month values; fiscal Q1 is the year to date; fiscal Q4 is the annual value minus 9 months. April-to-March companies are included. The financial result matches the raw filings in 107 rows checked by hand, and an independent rebuild matches all 27,822 rows. Translation and hedge are unknown (empty) for 2,769 rows whose filing shows only a nonzero total. `restated_q` marks 1,412 rows where the year-to-date difference disagrees with the filed 3-month value; `suspect_q` marks 58 rows. The step 3 rule leaves 325 to 470 companies in each event quarter. 34 tests in `tests/test_filed_panel.py`. |
 | RE1 | Re-evaluation of steps 1-2 | done | Step 1: pass with fixes. Step 2: fail (1 blocker), then fixed. Verdict and changes below. |
 | 3 | Signed first-hop event test (kill rule below, fixed before the run) | pending | |
 | 4 | Pass-through regression with firm fixed effects (kill rule below) | pending | |
@@ -18,11 +18,11 @@ Background: `docs/network_panel.md`.
 
 ## Kill rules, fixed before the runs
 
-Sharpened after RE1, before any step-3 or step-4 result exists.
+Sharpened after RE1 and after its check, before any step-3 or step-4 result exists.
 
 **Common definitions**
 - **Event quarters:** quarters from 2015 Q1 to 2024 Q4 with |PTAX(q) / PTAX(q-1) - 1| > 10 %, where PTAX is the last SGS-1 value of the quarter (`data/macro_quarterly.csv`). These are 9 quarters: 2015 Q1, 2015 Q3, 2018 Q2, 2020 Q1, 2021 Q2, 2022 Q1, 2022 Q2, 2024 Q2, 2024 Q4. The shock s(q) is that signed change.
-- **Firms:** all rows of `data/filed_panel.csv` with an outcome, `equity_lag` > 0, and `restated_q` false. A quarter needs at least 50 firms.
+- **Firms:** all rows of `data/filed_panel.csv` with fin_result_q, oci_translation_q and oci_hedge_q known, `suspect_q` false, `equity_lag` at least 5 % of `total_assets_lag` and at least R$ 10 million. A quarter needs at least 50 firms. (`restated_q` rows stay: they use the filed 3-month value.)
 - **Target (step 3):** (fin_result_q + oci_translation_q + oci_hedge_q) / equity_lag, before tax (`oci_tax_q` is not included).
 
 **Step 3 passes** only if all of these are true:
@@ -31,14 +31,14 @@ Sharpened after RE1, before any step-3 or step-4 result exists.
 3. A one-sample t statistic over the 9 gains is at least 2.
 - Score: the Spearman rank correlation with the target in each event quarter.
 - **Shipped rule:** (debt_short_lag + debt_long_lag) × s(q) × 0.66 / equity_lag. The 2024 debt notes are not used, because they would look ahead.
-- **Sector mean:** for each CVM sector, the mean of target / s over the event quarters before q, times s(q).
+- **Sector mean:** for each CVM sector, the median of target / s over the event quarters before q, times s(q). (A median, so that a few companies with almost no equity do not decide it.)
 - The firm's own 4-quarter mean is reported as a 3rd comparison, but it is not part of the rule.
 
 **Step 4 fails** if any of these is true:
 1. The out-of-sample skill is below 10 %. Skill = 1 - MSE(model) / MSE(firm mean), on fin_result_q / total_assets_lag.
 2. The model wins fewer than 9 of the 12 test quarters (2022 to 2024).
 3. The 95 % interval of the dollar pass-through contains 0 or 1.
-- Exposure: (fx_loans_short_lag + fx_loans_long_lag) × s(q) / total_assets_lag, for firms with a nonzero filed split only. A 0 in the split does not prove that a firm has no foreign-currency debt.
+- Exposure: (fx_loans_short_lag + fx_loans_long_lag) × s(q) / total_assets_lag, for firms with a nonzero filed split only. A 0 in the split does not prove that a firm has no foreign-currency debt. Rows with `suspect_q` true are left out.
 - The model has firm fixed effects, with an expanding window up to q-1. Winsor limits come from the training quarters only.
 - Standard errors are clustered by quarter, with a firm bootstrap as a check.
 
@@ -112,3 +112,22 @@ If step 3 fails, the README says that the firm-level data add nothing beyond the
 | Duplicate rows | Resolved with `fetch_cvm._single`: the value is empty when duplicates disagree. |
 | Step 1 wording | "Panel rerun, not yet reproduced here" on each number; "clearly" removed; a warning in the README opening. |
 | Kill rules | Rewritten with the proposed definitions, before any run. |
+
+### Check of the RE1 fixes, 2026-11-25
+
+4 independent checkers (raw recompute, edge cases, labels, fitness for the step 3 test) tried to break the fixed panel. They found the financial result correct: 107 rows recomputed by hand from the raw filings, and an independent rebuild of all 27,822 rows. Their findings, and what changed:
+
+| Severity | Finding | Change |
+|---|---|---|
+| blocker (3 checkers) | A filing with only the 4.02 total got translation = hedge = 0; differencing it against a detailed filing invented class flows (Natura &Co 2020 Q1: OCI 134 % of equity, counted as 0) | Classes are empty (unknown) when a filing shows only a nonzero total; 0 when the total is 0. Rule drops unknown rows (36 to 76 per event quarter). Test added. |
+| blocker | Filings declared in units but in thousands, when the filing before has the same error: equity_lag 1000 times too small (NTS 2020 Q1 target -18.6 instead of -0.019) | `fetch_cvm.unit_fixes` also accepts proof from a later filing's comparative. `data/cvm_quarterly.csv` rebuilt: 276 rows of 52 companies fixed, none in the 100-company universe. Test added. |
+| should-fix (2 checkers) | A line that changes class between filings (gross to net of tax, renamed lines) corrupts the class flows (Braskem 2022 Q2 hedge error 18 % of equity) | Fiscal Q2 and Q3 use the filed 3-month values, classified inside 1 filing. Translation moved into profit on a disposal is class other (Vale 2021 Q2 and 2024 Q4 now match). |
+| should-fix | The net-of-tax rule left fragments that matched the tax rule | The whole net-of-tax clause is removed before the tax test. Tests added. |
+| should-fix | Missed labels: FX on debt under hedge accounting (São Martinho), misspellings of "cambial", "diferenças de câmbio" | Added to the rules. Tests added. |
+| should-fix | Equity close to 0 gives targets up to -1,816 | Equity floor in the rule; sector baseline is a median. Largest absolute target is now 3.9. |
+| should-fix | `restated_q` dropped correct rows, and fiscal Q1 and Q4 were never checked | `restated_q` is now only information (the filed value is used). New `suspect_q` for Q4 placeholders and jumps of total assets by 100 times or more. Fiscal Q4 class flows still cannot be checked (stated in the module). |
+| note | Financial holdings in a non-financial sector (BNDESPAR, REAG, YBYRA) | Removed by a short list in the module. |
+| note | Gross and net of tax hedge lines are mixed; hedge includes interest-rate and commodity hedges | Stated in the module. No change: the effect is a scale of at most 1/0.66 on the hedge part. |
+| note | Listed holding and listed subsidiary both in the panel (Suzano Holding and Suzano); small look-ahead from latest-version stocks; ITRs with a 3-month column only get fiscal Q1; companies that file consolidated statements lose their individual-only quarters | Stated in the module or here. No change. |
+| note | Iochpe 2015 Q3 files its translation under a financial-instrument label | The panel follows the filed label. No change. |
+
