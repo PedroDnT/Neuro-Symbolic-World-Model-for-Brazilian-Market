@@ -45,6 +45,7 @@ BALANCE = {
     "1": ("total_assets", "ativo total"),
     "1.01": ("current_assets", "ativo circulante"),
     "1.01.01": ("cash", "caixa e equivalentes de caixa"),
+    "1.01.02": ("financial_investments", "aplicacoes financeiras"),
     "2.01": ("current_liabilities", "passivo circulante"),
     "2.01.04": ("debt_short", "emprestimos e financiamentos"),
     # Optional split of the standard chart; many companies leave it at 0 (see aggregate.fx_check).
@@ -75,7 +76,9 @@ def normalize_text(text: str) -> str:
     return " ".join(plain.lower().split())
 
 
-def _read(doc: str, year: int, statement: str, scope: str, codes: set[str]) -> pd.DataFrame:
+def _read(doc: str, year: int, statement: str, scope: str, codes) -> pd.DataFrame:
+    """Rows of 1 statement file. `codes` is a set of account codes, or a function that takes
+    the account-code column and returns a boolean mask."""
     archive_name = f"{doc}_cia_aberta_{year}.zip"
     path = download(f"{CVM_BASE}/DOC/{doc.upper()}/DADOS/{archive_name}", RAW_DIR / "cvm" / archive_name, MODULE)
     parts = []
@@ -85,7 +88,8 @@ def _read(doc: str, year: int, statement: str, scope: str, codes: set[str]) -> p
             handle, sep=";", encoding="latin1", dtype=str, chunksize=250_000, usecols=lambda name: name in NEEDED
         )
         for chunk in reader:
-            parts.append(chunk[chunk["CD_CONTA"].isin(codes)])
+            mask = codes(chunk["CD_CONTA"]) if callable(codes) else chunk["CD_CONTA"].isin(codes)
+            parts.append(chunk[mask])
     frame = pd.concat(parts, ignore_index=True)
     frame["doc"] = doc
     return frame

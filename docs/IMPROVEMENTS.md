@@ -7,7 +7,7 @@ Background: `docs/network_panel.md`.
 | Step | Improvement | Status | Evidence |
 |---|---|---|---|
 | 1 | State the panel verdict in the README and the pages | done | README section "What the network panel found"; `docs/network_panel.md` |
-| 2 | Build the filed-outcome panel (financial result, translation and hedge lines, FX loans, equity) for all non-financial filers | next | |
+| 2 | Build the filed-outcome panel (financial result, translation and hedge lines, FX loans, equity) for all non-financial filers | done | `src/data_ingestion/filed_panel.py` writes `data/filed_panel.csv`: 18,637 company-quarters, 637 non-financial companies, 2011 Q1 to 2024 Q4. Each quarter is the year to date minus the previous year to date, so the 4 quarters add up to the annual value for 99.7 % to 100 % of companies (checked in 2015, 2020, 2023). The first method (3-month rows) failed this check for 20 % of companies, because restated quarters did not add up. Label map `data/dra_label_map.csv`: 609 hedge labels, 398 translation labels; 6 missed hedge labels and 1 missed translation label were found by a review and added. Translation lines are filled for 27.5 % of company-quarters, hedge lines for 17.2 %. 16 tests in `tests/test_filed_panel.py`. |
 | RE1 | Re-evaluation of steps 1-2 | pending | |
 | 3 | Signed first-hop event test (kill rule below, fixed before the run) | pending | |
 | 4 | Pass-through regression with firm fixed effects (kill rule below) | pending | |
