@@ -10,7 +10,7 @@ Background: `docs/network_panel.md`.
 | 2 | Build the filed-outcome panel (financial result, translation and hedge lines, FX loans, equity) for all non-financial filers | done, fixed after RE1 and its check | `src/data_ingestion/filed_panel.py` writes `data/filed_panel.csv`: 27,820 company-quarters, 945 non-financial companies (628 consolidated, 317 that file only individual statements), 2011 Q1 to 2024 Q4. Fiscal Q2 and Q3 use the filed 3-month values; fiscal Q1 is the year to date; fiscal Q4 is the annual value minus 9 months. April-to-March companies are included. The financial result matches the raw filings in 107 rows checked by hand, and an independent rebuild matches all 27,822 rows. Translation and hedge are unknown (empty) for 2,769 rows whose filing shows only a nonzero total. `restated_q` marks 1,412 rows where the year-to-date difference disagrees with the filed 3-month value; `suspect_q` marks 58 rows. The step 3 rule leaves 325 to 470 companies in each event quarter. 34 tests in `tests/test_filed_panel.py`. |
 | RE1 | Re-evaluation of steps 1-2 | done | Step 1: pass with fixes. Step 2: fail (1 blocker), then fixed. Verdict and changes below. |
 | 3 | Signed first-hop event test (kill rule below, fixed before the run) | **failed** | `python -m src.evaluation.event_test` (`data/event_test.csv`). The signed predictor beats both baselines in 2 of 9 quarters; mean gain -0.27, t = -3.0. The pass rule needs 7, 0.15 and 2. Result and a design problem of the target: see "Step 3 result" below. |
-| 4 | Pass-through regression with firm fixed effects (kill rule below) | **survived** | `python -m src.evaluation.pass_through` (`data/pass_through.csv`). θ = 0.665, clustered 95 % interval 0.59 to 0.74, firm bootstrap 0.51 to 0.80 (327 firms, 7,002 rows). Out-of-sample skill 22.4 % against the firm mean; 12 wins of 12 test quarters. See "Step 4 result" below. |
+| 4 | Pass-through regression with firm fixed effects (kill rule below) | **survived (winsorized reading, chosen after the result), fragile** | `python -m src.evaluation.pass_through` (`data/pass_through.csv`). θ = 0.665, clustered 95 % interval 0.59 to 0.74, firm bootstrap 0.51 to 0.80 (327 firms, 7,002 rows). Out-of-sample skill 22.4 % against the firm mean; 12 wins of 12 test quarters. See "Step 4 result" below. |
 | RE2 | Re-evaluation of steps 3-4 | done | Step 3: final, failed (3 of 3 reviewers). Step 4: survived under the code's reading of the rule (2 of 2 reviewers that checked it), but fragile: see below. |
 | 5 | If step 3 passes: the stress engine uses the fitted signed layer; score the 2025 filings frozen | **cancelled** (step 3 failed) | The README states the result with the wording that RE2 corrected. |
 | 6 | Contagion capacity bound for 4 historical shock sizes | done, corrected after RE3 | `python -m src.evaluation.contagion_bound` (`data/contagion_bound.csv`). The first run ("at most about 15 %") was wrong: a bug gave companies with negative equity no distress. Corrected worst case: the second round is **25 % to 53 %** of the direct loss (registered FX rule), about 14 % if companies insolvent before the shock pass on nothing. 2 or 3 links drive it. See "Step 6 result". |
@@ -418,4 +418,15 @@ Reading:
 | README hides the step 4 fragility; exploratory numbers not labelled; "own recent mean predicts best" untrue in 2022 Q2; OCI range only for firms with a slope; the opening claims more than was tested | README section rewritten. |
 | `docs/network_panel.md` numbers contradicted | A note at the top points to the tested results. |
 | Product framing; insolvent-company rule; step 4 reading; step 3b | Open decisions for the owner. Not changed. |
+
+## Owner decisions, 2026-11-25
+
+After the merge of PR #8, the owner asked for suggestions and approved them as written here:
+
+1. **Step 4: the final interval is winsorized.** Step 4 is "survived, fragile, reading chosen after the result". Reason: the method winsorizes every other fit. The numbers that would kill it stay in the README: raw θ 0.89 with an interval that contains 1, raw skill 8.5 %, and skill without the top 5 firms -0.7 %.
+2. **Step 6: companies that were insolvent before the shock pass on full distress** in the headline bound (25 % to 53 %). The 14 % figure is shown beside it, and it is not a bound. The Petrobras-Braskem link is named.
+3. **Step 3b is not run.** Exploratory checks gave 6 of 9 wins with a mean gain of about 0, and the test would not be blind.
+4. **Product framing:** the README leads with the audited debt-exposure data set, then the dollar pass-through, then the contagion bound. The ranked engine comes last, as a leverage screen.
+
+The improvement line is closed. `/advisor` can be run by the owner on this file at any time.
 
